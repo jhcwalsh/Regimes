@@ -77,24 +77,35 @@ exclude_mo = st.sidebar.slider(
 )
 
 # ---------------------------------------------------------------------------
-# Data loading (cached)
+# Data loading — NOT cached via @st.cache_data so API key changes take effect
+# immediately. We store in session_state to avoid refetching on every widget
+# interaction.
 # ---------------------------------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner="Fetching market data...")
-def load_data(refresh_flag: bool = False):
-    raw     = fetch_all(refresh_cache=refresh_flag)
-    zscores = compute_zscore(raw)
-    return raw, zscores
-
-
 if not api_key_input:
     st.warning("Enter your FRED API Key in the sidebar to load live data.")
     st.stop()
 
-try:
-    raw, zscores = load_data(refresh_flag=refresh)
-except Exception as e:
-    st.error(f"Data load failed: {e}")
-    st.stop()
+if refresh or "raw" not in st.session_state:
+    with st.spinner("Fetching market data..."):
+        try:
+            raw     = fetch_all(refresh_cache=refresh)
+            zscores = compute_zscore(raw)
+            st.session_state["raw"]     = raw
+            st.session_state["zscores"] = zscores
+        except Exception as e:
+            st.error(f"Data load failed: {e}")
+            st.stop()
+
+raw     = st.session_state["raw"]
+zscores = st.session_state["zscores"]
+
+# Diagnostic expander — helps debug missing values
+with st.sidebar.expander("Diagnostics"):
+    st.write("**Raw data tail (last 2 rows):**")
+    st.dataframe(raw.tail(2).T.round(3))
+    cur_zs = current_zscores(zscores)
+    st.write("**Current Z-scores:**")
+    st.dataframe(cur_zs.round(3).to_frame("Z-Score"))
 
 zs_clean = zscores.dropna(how="all")
 target_date = zs_clean.index[-1]
@@ -102,14 +113,9 @@ target_date = zs_clean.index[-1]
 # ---------------------------------------------------------------------------
 # Compute similarity scores
 # ---------------------------------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner="Computing similarity scores...")
-def compute_scores(_zscores, _target_date, _exclude_mo, _quantile_q):
-    scores = compute_global_scores(_zscores, _target_date, _exclude_mo)
-    ranked = rank_regimes(scores, _quantile_q, _quantile_q)
-    return scores, ranked
-
-
-scores, ranked = compute_scores(zscores, target_date, exclude_mo, quantile_q)
+with st.spinner("Computing similarity scores..."):
+    scores = compute_global_scores(zscores, target_date, exclude_mo)
+    ranked = rank_regimes(scores, quantile_q, quantile_q)
 
 
 # ---------------------------------------------------------------------------
@@ -128,15 +134,17 @@ n_similar   = (ranked["regime"] == "similar").sum()
 n_dissim    = (ranked["regime"] == "dissimilar").sum()
 
 # Regime shift score
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_ewma(_zscores, _exclude_mo):
-    from engine.similarity import compute_global_score_history
-    hist_scores = compute_global_score_history(_zscores, _exclude_mo)
-    ewma = compute_ewma_regime_shift(hist_scores)
-    return ewma, current_regime_shift_score(ewma)
+if "ewma_df" not in st.session_state or refresh:
+    with st.spinner("Computing regime shift indicator..."):
+        from engine.similarity import compute_global_score_history
+        hist_scores = compute_global_score_history(zscores, exclude_mo)
+        ewma_df     = compute_ewma_regime_shift(hist_scores)
+        shift_reading = current_regime_shift_score(ewma_df)
+        st.session_state["ewma_df"]       = ewma_df
+        st.session_state["shift_reading"] = shift_reading
 
-
-ewma_df, shift_reading = get_ewma(zscores, exclude_mo)
+ewma_df       = st.session_state["ewma_df"]
+shift_reading = st.session_state["shift_reading"]
 
 with col_status1:
     st.metric("Similar Periods Found", n_similar)

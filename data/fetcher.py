@@ -30,13 +30,15 @@ from config import (
 # ---------------------------------------------------------------------------
 
 def _fred() -> Fred:
-    if not FRED_API_KEY:
+    # Re-read from environment each call so sidebar input takes effect immediately
+    key = os.environ.get("FRED_API_KEY", "") or FRED_API_KEY
+    if not key:
         raise ValueError(
             "FRED_API_KEY is not set. "
             "Get a free key at https://fred.stlouisfed.org/docs/api/api_key.html "
             "and set it as an environment variable: export FRED_API_KEY=your_key"
         )
-    return Fred(api_key=FRED_API_KEY)
+    return Fred(api_key=key)
 
 
 def _to_month_period(series: pd.Series) -> pd.Series:
