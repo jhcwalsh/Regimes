@@ -61,6 +61,8 @@ if api_key_input:
     os.environ["FRED_API_KEY"] = api_key_input
 
 refresh = st.sidebar.button("Refresh Data", type="primary")
+if refresh:
+    st.cache_data.clear()  # Wipe Streamlit in-memory cache so fresh data is loaded
 
 st.sidebar.divider()
 quantile_q = st.sidebar.slider(
