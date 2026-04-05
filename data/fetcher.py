@@ -39,11 +39,22 @@ def _fred() -> Fred:
     return Fred(api_key=FRED_API_KEY)
 
 
-def _to_monthly_end(series: pd.Series) -> pd.Series:
-    """Resample any series to month-end frequency, forward-filling gaps."""
+def _to_month_period(series: pd.Series) -> pd.Series:
+    """
+    Normalize any series to a monthly PeriodIndex (YYYY-MM), then convert
+    to timestamp at month-end.  Forward-fill to cover reporting lags.
+    All series use this so that pd.concat aligns correctly.
+    """
     series = series.copy()
-    series.index = pd.to_datetime(series.index)
-    return series.resample("ME").last().ffill()
+    series.index = pd.to_datetime(series.index).to_period("M").to_timestamp("M")
+    # Collapse multiple observations in same month to last value
+    series = series.groupby(series.index).last()
+    return series.ffill()
+
+
+# Keep old name as alias so cached-parquet reads still work
+def _to_monthly_end(series: pd.Series) -> pd.Series:
+    return _to_month_period(series)
 
 
 def _cache_path(name: str) -> str:
@@ -71,11 +82,11 @@ def fetch_sp500_monthly(start: str = "1920-01-01") -> pd.Series:
     """S&P 500 monthly close price (log scale used in transformation)."""
     cached = _load_cache("sp500")
     if cached is not None:
-        return cached
+        return _to_month_period(cached)
 
     df = yf.download(SP500_TICKER, start=start, interval="1mo", auto_adjust=True, progress=False)
     s = df["Close"].squeeze()
-    s.index = pd.to_datetime(s.index).to_period("M").to_timestamp("M")
+    s = _to_month_period(s)
     s.name = "sp500"
     _save_cache("sp500", s)
     return s
@@ -88,11 +99,11 @@ def fetch_fred_series(start: str = "1920-01-01") -> pd.DataFrame:
     for name, series_id in FRED_SERIES.items():
         cached = _load_cache(name)
         if cached is not None:
-            frames[name] = cached
+            frames[name] = _to_month_period(cached)
         else:
             raw = fred.get_series(series_id, observation_start=start)
             raw.name = name
-            monthly = _to_monthly_end(raw)
+            monthly = _to_month_period(raw)
             _save_cache(name, monthly)
             frames[name] = monthly
 
@@ -123,8 +134,8 @@ def fetch_stock_bond_correlation(start: str = "1960-01-01") -> pd.Series:
 
     rolling_corr = combined["equity"].rolling(window=window_days).corr(combined["bond"])
 
-    # Collapse to month-end
-    monthly = rolling_corr.resample("ME").last().ffill()
+    # Collapse to month-end with normalised index
+    monthly = _to_month_period(rolling_corr.resample("ME").last())
     monthly.name = "stock_bond_corr"
 
     _save_cache("stock_bond_corr", monthly)
@@ -144,6 +155,7 @@ def fetch_realized_volatility_monthly(start: str = "1920-01-01") -> pd.Series:
     daily_ret = df["Close"].squeeze().pct_change().dropna()
     # Annualised realised vol (%)
     monthly_vol = daily_ret.resample("ME").std() * np.sqrt(252) * 100
+    monthly_vol = _to_month_period(monthly_vol)
     monthly_vol.name = "realized_vol"
     _save_cache("realized_vol", monthly_vol)
     return monthly_vol
@@ -167,11 +179,16 @@ def build_vix_series() -> pd.Series:
         fred_vix = _to_monthly_end(raw)
         fred_vix.name = "vix"
 
-    cutoff = pd.Timestamp("1990-01-01")
-    pre  = realised[realised.index < cutoff]
-    post = fred_vix[fred_vix.index >= cutoff]
+    # Normalise both to the same month-end index before splicing
+    realised  = _to_month_period(realised)
+    fred_vix  = _to_month_period(fred_vix)
+
+    cutoff = pd.Timestamp("1990-01-31")
+    pre  = realised[realised.index <= cutoff]
+    post = fred_vix[fred_vix.index >  cutoff]
 
     spliced = pd.concat([pre, post]).sort_index()
+    spliced = spliced[~spliced.index.duplicated(keep="last")]
     spliced.name = "volatility"
     _save_cache("vix_spliced", spliced)
     return spliced
@@ -212,19 +229,19 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
     log_sp500 = np.log(sp500)
     log_sp500.name = "sp500"
 
-    df = pd.concat([
-        log_sp500,
-        yield_curve,
-        fred_data["oil"],
-        fred_data["copper"],
-        fred_data["tbill_3m"],
-        vol,
-        sb_corr,
-    ], axis=1)
+    # Ensure every series has a normalised month-end index before concat
+    series_list = [log_sp500, yield_curve,
+                   fred_data["oil"], fred_data["copper"], fred_data["tbill_3m"],
+                   vol, sb_corr]
+    series_list = [_to_month_period(s) for s in series_list]
 
+    df = pd.concat(series_list, axis=1)
     df.columns = ["sp500", "yield_curve", "oil", "copper", "tbill_3m", "volatility", "stock_bond_corr"]
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
+
+    # Forward-fill to cover FRED reporting lags (e.g. oil/copper released ~1m late)
+    df = df.ffill()
 
     return df
 
