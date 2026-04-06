@@ -162,12 +162,13 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Tab layout
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Current Z-Scores",
     "Similar Periods",
     "Anti-Regimes",
     "Regime Shift Detector",
     "Raw Variables",
+    "HF Portfolio",
 ])
 
 # ── Tab 1: Current Z-Scores ────────────────────────────────────────────────
@@ -459,6 +460,230 @@ with tab5:
 
     fig_raw.update_layout(height=900, title_text="Raw Economic State Variables")
     st.plotly_chart(fig_raw, use_container_width=True)
+
+# ── Tab 6: HF Portfolio ────────────────────────────────────────────────────
+with tab6:
+    st.subheader("Regime-Based Hedge Fund Portfolio Construction")
+    st.caption(
+        "Applies the regime similarity scores to allocate across hedge fund strategies. "
+        "Similar historical months determine expected return 'views', fed into a "
+        "Black-Litterman or risk parity optimiser. "
+        "**Demo mode** uses synthetic returns calibrated to HFRI long-run statistics — "
+        "replace with real strategy data via `data/hf_returns.py`."
+    )
+
+    st.info(
+        "⚠️ **Demo mode:** synthetic HF returns are used. "
+        "Build `data/hf_returns.py` (HFRI indices) to replace with live data.",
+        icon="📋",
+    )
+
+    # --- Portfolio controls ---
+    col_pc1, col_pc2, col_pc3, col_pc4 = st.columns(4)
+    with col_pc1:
+        port_method = st.selectbox(
+            "Optimisation method",
+            options=["bl", "rp", "tilted_rp", "equal"],
+            format_func=lambda x: {
+                "bl": "Black-Litterman",
+                "rp": "Risk Parity",
+                "tilted_rp": "Tilted Risk Parity",
+                "equal": "Equal Weight",
+            }[x],
+        )
+    with col_pc2:
+        port_horizon = st.selectbox(
+            "View horizon (months)",
+            options=[1, 3, 6, 12],
+            index=0,
+        )
+    with col_pc3:
+        port_quantile = st.slider(
+            "Regime quantile",
+            min_value=0.10, max_value=0.30, value=float(quantile_q), step=0.05,
+            help="Fraction of history used as 'similar' for computing views",
+        )
+    with col_pc4:
+        tilt_str = st.slider(
+            "Tilt strength",
+            min_value=0.0, max_value=1.0, value=0.5, step=0.1,
+            help="Only used for Tilted Risk Parity (0=pure RP, 1=max tilt)",
+            disabled=(port_method != "tilted_rp"),
+        )
+
+    run_bt = st.button("Run Backtest", type="primary")
+
+    # Cache key: invalidate when any control changes
+    bt_key = f"bt_{port_method}_{port_horizon}_{port_quantile}_{tilt_str}"
+
+    if run_bt or bt_key not in st.session_state:
+        with st.spinner("Running walk-forward backtest (this may take ~30 seconds)…"):
+            try:
+                from portfolio.backtest import run_backtest, demo_strategy_returns
+                from engine.strategy_timing import current_regime_stats
+
+                hf_returns = demo_strategy_returns()
+
+                bt = run_backtest(
+                    hf_returns,
+                    zscores,
+                    method=port_method,
+                    quantile=port_quantile,
+                    exclude_recent_months=exclude_mo,
+                    horizon=port_horizon,
+                    tilt_strength=tilt_str,
+                )
+
+                # Current allocation
+                regime_tbl = current_regime_stats(
+                    hf_returns, zscores,
+                    quantile=port_quantile,
+                    horizon=port_horizon,
+                    exclude_recent_months=exclude_mo,
+                )
+
+                st.session_state[bt_key] = {
+                    "bt": bt,
+                    "regime_tbl": regime_tbl,
+                    "hf_returns": hf_returns,
+                }
+            except Exception as e:
+                st.error(f"Backtest failed: {e}")
+                st.stop()
+
+    if bt_key in st.session_state:
+        cached      = st.session_state[bt_key]
+        bt          = cached["bt"]
+        regime_tbl  = cached["regime_tbl"]
+        hf_returns  = cached["hf_returns"]
+
+        port_ret = bt["portfolio_returns"]
+        bm_ret   = bt["benchmark_returns"]
+        wt_hist  = bt["weights_history"]
+        stats_df = bt["stats"]
+        strategies = bt["strategy_names"]
+
+        # ── Current allocation ──────────────────────────────────────────
+        st.subheader("Current Regime-Implied Allocation")
+
+        if not wt_hist.empty:
+            latest_weights = wt_hist.iloc[-1].sort_values(ascending=True)
+            fig_alloc = go.Figure(go.Bar(
+                x=latest_weights.values * 100,
+                y=latest_weights.index,
+                orientation="h",
+                marker_color="#1f77b4",
+                text=[f"{v*100:.1f}%" for v in latest_weights.values],
+                textposition="outside",
+            ))
+            fig_alloc.update_layout(
+                height=350,
+                title=f"Portfolio Weights — {wt_hist.index[-1].strftime('%b %Y')}",
+                xaxis_title="Weight (%)",
+                xaxis=dict(range=[0, 55]),
+                margin=dict(l=140),
+            )
+            st.plotly_chart(fig_alloc, use_container_width=True)
+
+        # ── Regime-conditional stats table ──────────────────────────────
+        st.subheader(f"Regime-Conditional Statistics ({port_horizon}m horizon)")
+        st.caption(
+            "Regime Sharpe: forward returns in historically similar months. "
+            "Sharpe Premium: regime Sharpe minus full-history unconditional Sharpe."
+        )
+
+        rc_display = regime_tbl.copy()
+        rc_display = rc_display.rename(columns={
+            "regime_mean_ret_%":    "Regime Mean Ret (%)",
+            "regime_std_%":         "Regime Std (%)",
+            "regime_sharpe":        "Regime Sharpe",
+            "unconditional_sharpe": "Uncond. Sharpe",
+            "sharpe_premium":       "Sharpe Premium",
+            "n_similar_periods":    "N Similar",
+        })
+        st.dataframe(rc_display.round(3), use_container_width=True)
+
+        st.divider()
+
+        # ── Equity curve ────────────────────────────────────────────────
+        st.subheader("Backtest Equity Curve")
+
+        equity_port = (1 + port_ret).cumprod()
+        equity_bm   = (1 + bm_ret).cumprod()
+
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(
+            x=equity_port.index, y=equity_port.values,
+            mode="lines", name=port_ret.name,
+            line=dict(color="#1f77b4", width=2),
+        ))
+        fig_eq.add_trace(go.Scatter(
+            x=equity_bm.index, y=equity_bm.values,
+            mode="lines", name="Equal Weight",
+            line=dict(color="#aaaaaa", width=1.5, dash="dot"),
+        ))
+        fig_eq.update_layout(
+            height=380,
+            title="Cumulative Growth of $1",
+            yaxis_title="Portfolio Value ($)",
+            xaxis_title="Date",
+            legend=dict(x=0.01, y=0.99),
+        )
+        st.plotly_chart(fig_eq, use_container_width=True)
+
+        # ── Drawdown ─────────────────────────────────────────────────────
+        from portfolio.risk import drawdown_series
+        dd_port = drawdown_series(port_ret) * 100
+        dd_bm   = drawdown_series(bm_ret)   * 100
+
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=dd_port.index, y=dd_port.values,
+            mode="lines", name=port_ret.name,
+            line=dict(color="#d62728", width=1.5),
+            fill="tozeroy", fillcolor="rgba(214,39,40,0.15)",
+        ))
+        fig_dd.add_trace(go.Scatter(
+            x=dd_bm.index, y=dd_bm.values,
+            mode="lines", name="Equal Weight",
+            line=dict(color="#aaaaaa", width=1, dash="dot"),
+        ))
+        fig_dd.update_layout(
+            height=280,
+            title="Drawdown (%)",
+            yaxis_title="Drawdown (%)",
+            xaxis_title="Date",
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+        # ── Weight history heat-map ──────────────────────────────────────
+        st.subheader("Weight History")
+        fig_wt = go.Figure(go.Heatmap(
+            z=wt_hist.values.T * 100,
+            x=[d.strftime("%Y-%m") for d in wt_hist.index],
+            y=wt_hist.columns.tolist(),
+            colorscale="Blues",
+            colorbar=dict(title="Weight (%)"),
+            zmin=0, zmax=40,
+        ))
+        fig_wt.update_layout(
+            height=320,
+            title="Portfolio Weights Over Time (%)",
+            xaxis_title="Date",
+        )
+        st.plotly_chart(fig_wt, use_container_width=True)
+
+        # ── Performance table ─────────────────────────────────────────────
+        st.subheader("Performance Summary")
+        st.dataframe(stats_df, use_container_width=True)
+
+        st.caption(
+            "**Notes:** Walk-forward backtest — no lookahead bias. "
+            "Regime-conditional views use only data available at each rebalance date. "
+            "Covariance estimated from trailing 36-month returns with shrinkage regularisation. "
+            "Demo returns are synthetic; live results will differ with real HFRI data."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Footer

@@ -49,6 +49,18 @@ N_DISPLAY_SIMILAR     = 20       # Number of similar periods to display
 EWMA_LOOKBACK_YEARS = [1, 2, 3, 4]  # Four lookback windows in years
 
 # ---------------------------------------------------------------------------
+# Portfolio construction parameters
+# ---------------------------------------------------------------------------
+RISK_AVERSION          = 2.5     # Black-Litterman risk aversion coefficient (delta)
+BL_TAU                 = 0.05    # BL uncertainty scaling parameter (tau)
+REBALANCE_FREQ_MONTHS  = 1       # Rebalance frequency (1 = monthly)
+MAX_STRATEGY_WEIGHT    = 0.40    # Maximum weight per strategy
+MIN_STRATEGY_WEIGHT    = 0.00    # Minimum weight (no short selling)
+HF_HORIZONS            = [1, 3, 6, 12]   # Forward return horizons for regime-conditional stats
+UNSMOOTH_RETURNS       = True    # Apply Geltner (1994) unsmoothing to HF returns
+BACKTEST_START         = "1994-01-31"    # Default backtest start (matches HFRI history)
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache")
