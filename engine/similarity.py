@@ -90,6 +90,9 @@ def compute_global_scores(
 
     scores = pd.Series(sq_dist, index=zs.index, name="global_score")
 
+    # Only months up to T are candidates (paper: "for every month up to month T")
+    scores.loc[scores.index > target_date] = np.nan
+
     # Mask the exclusion window: [target_date - exclude_recent_months, target_date]
     cutoff = target_date - pd.DateOffset(months=exclude_recent_months)
     scores.loc[(scores.index > cutoff) & (scores.index <= target_date)] = np.nan

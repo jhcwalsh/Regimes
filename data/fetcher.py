@@ -96,13 +96,14 @@ def fetch_sp500_monthly(start: str = "1920-01-01") -> pd.Series:
 
 def fetch_fred_series(start: str = "1920-01-01") -> pd.DataFrame:
     """Fetch all FRED series and return as a monthly DataFrame."""
-    fred = _fred()
+    fred = None  # created only if a series is missing from the cache
     frames = {}
     for name, series_id in FRED_SERIES.items():
         cached = _load_cache(name)
         if cached is not None:
             frames[name] = _to_month_period(cached)
         else:
+            fred = fred or _fred()
             raw = fred.get_series(series_id, observation_start=start)
             raw.name = name
             monthly = _to_month_period(raw)

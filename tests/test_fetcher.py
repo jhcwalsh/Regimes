@@ -38,3 +38,21 @@ def test_stock_bond_correlation_is_monthly_month_end():
 
     assert corr.name == "stock_bond_corr"
     assert all(corr.index == corr.index + pd.offsets.MonthEnd(0))
+
+
+def test_fred_series_load_from_cache_without_api_key(tmp_path, monkeypatch):
+    """A cached deployment must not need a FRED key just to read its own cache."""
+    import data.fetcher as fetcher
+    from config import FRED_SERIES
+
+    idx = pd.date_range("2020-01-31", periods=3, freq="ME")
+    for name in FRED_SERIES:
+        pd.Series([1.0, 2.0, 3.0], index=idx, name=name).to_frame().to_parquet(tmp_path / f"{name}.parquet")
+    monkeypatch.setattr(fetcher, "CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(fetcher, "FRED_API_KEY", "")
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+
+    df = fetcher.fetch_fred_series()
+
+    assert list(df.columns) == list(FRED_SERIES)
+    assert len(df) == 3

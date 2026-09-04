@@ -40,3 +40,11 @@ def test_explicit_incomplete_target_date_is_rejected():
     zs = _zs([[0.0, 0.0], [1.0, np.nan]])
     with pytest.raises(ValueError, match="incomplete"):
         compute_global_scores(zs, target_date=zs.index[-1], exclude_recent_months=0)
+
+
+def test_months_after_target_are_not_candidates():
+    # Paper: the score is computed "for every month up to month T".
+    zs = _zs([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [1.0, 1.0]])
+    scores = compute_global_scores(zs, target_date=zs.index[2], exclude_recent_months=0)
+    assert np.isnan(scores.loc[zs.index[3]])
+    assert scores.loc[zs.index[1]] == pytest.approx(np.sqrt(2))

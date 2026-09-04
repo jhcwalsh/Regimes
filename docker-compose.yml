@@ -1,0 +1,14 @@
+# Mac mini deployment: port 8503 (runbook allocation table), reachable through
+# the dashboard-managed Cloudflare Tunnel as regimes.lazyeconomist.com.
+# `restart: unless-stopped` is what makes reboot recovery work — do not omit it.
+services:
+  regimes:
+    build: .
+    ports:
+      - "8503:8503"
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # parquet cache survives rebuilds; the app refreshes it when >7 days old
+      - ./cache:/app/cache

@@ -42,7 +42,24 @@ export FRED_API_KEY=your_key_here   # Mac/Linux
 set FRED_API_KEY=your_key_here      # Windows
 ```
 
-## Run the dashboard
+## Run the public app (regimes.lazyeconomist.com)
+
+The site-styled app at the repo root reads the FRED key from the environment only:
+
+```bash
+streamlit run app.py
+```
+
+Views are chosen by query parameter: `?view=now` (default), `?view=explore&month=2009-01-31`, `?view=method`.
+The parquet cache refreshes itself when it is more than a week old.
+
+Deploy on the Mac mini follows the hosting runbook: `docker compose up -d --build` in `~/apps/regimes`
+(port 8503, `.env` holding `FRED_API_KEY`), then a Cloudflare published route `regimes` → `localhost:8503`.
+Design notes: `docs/superpowers/specs/2026-09-03-regimes-site-design.md`.
+
+## Run the research dashboard
+
+The original Streamlit dashboard with sidebar controls and the portfolio tab:
 
 ```bash
 streamlit run dashboard/app.py
@@ -65,8 +82,10 @@ Regimes/
 ├── engine/
 │   ├── similarity.py      # Euclidean distance / global score
 │   └── regime_shift.py    # EWMA regime shift detector
+├── app.py                 # Public app entry point (lazyeconomist.com style)
+├── web/                   # Public app: views, house style, charts, data freshness
 ├── dashboard/
-│   └── app.py             # Streamlit live dashboard
+│   └── app.py             # Research dashboard (sidebar controls, portfolio tab)
 ├── tests/                 # pytest suite (no network needed)
 ├── cache/                 # Parquet cache (git-ignored)
 └── requirements.txt
