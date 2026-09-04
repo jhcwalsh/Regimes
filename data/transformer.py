@@ -72,8 +72,13 @@ def describe_transformed(zscores: pd.DataFrame) -> pd.DataFrame:
 
 
 def current_zscores(zscores: pd.DataFrame) -> pd.Series:
-    """Return the most recent (current) row of Z-scores."""
-    return zscores.dropna(how="all").iloc[-1]
+    """
+    Return the most recent row of Z-scores with every variable observed.
+
+    The final row of live data is usually partial (FRED series lag), and a
+    partial row must not be treated as 'today'.
+    """
+    return zscores.dropna(how="any").iloc[-1]
 
 
 if __name__ == "__main__":

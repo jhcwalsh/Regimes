@@ -2,10 +2,12 @@
 Similarity engine: Euclidean distance-based regime identification.
 
 Per Mulliner et al. (2026):
-  - For a target date T, compute the squared Euclidean distance between
-    T's Z-score vector and every historical month's Z-score vector.
-  - Sum across all 7 variables → global score (lower = more similar).
-  - Score = 0 at T by construction.
+  - For a target date T, compute the Euclidean distance (eq. 1) between
+    T's Z-score vector and every historical month's Z-score vector:
+        d_Ti = sqrt( sum_v (x_iv - x_Tv)^2 )
+    This is the global score (lower = more similar). Score = 0 at T.
+  - T must be a month with all variables observed; by default it is the
+    latest such month (partial months would be compared on a subset).
   - Exclude the last 36 months to avoid momentum loading.
   - Rank historical months; bottom quantile = similar regimes (Q1),
     top quantile = anti-regimes (Q5).
@@ -29,6 +31,19 @@ from config import (
 # Core distance calculation
 # ---------------------------------------------------------------------------
 
+def latest_complete_date(zscores: pd.DataFrame) -> pd.Timestamp:
+    """
+    Most recent month for which every state variable is observed.
+
+    The last row of a live dataset is often partial (some FRED series lag
+    by a month or more), so this is the correct 'current' month for scoring.
+    """
+    complete = zscores.dropna(how="any")
+    if complete.empty:
+        raise ValueError("No month has all state variables observed.")
+    return complete.index[-1]
+
+
 def compute_global_scores(
     zscores: pd.DataFrame,
     target_date: Optional[pd.Timestamp] = None,
@@ -42,7 +57,8 @@ def compute_global_scores(
     zscores : pd.DataFrame
         Monthly Z-score matrix (rows = months, cols = variables).
     target_date : pd.Timestamp, optional
-        The month to compare against. Defaults to the most recent month.
+        The month to compare against. Must have every variable observed.
+        Defaults to the most recent complete month.
     exclude_recent_months : int
         Exclude this many months immediately before target_date from candidates.
 
@@ -55,16 +71,22 @@ def compute_global_scores(
     zs = zscores.dropna(how="all")
 
     if target_date is None:
-        target_date = zs.index[-1]
+        target_date = latest_complete_date(zs)
 
     if target_date not in zs.index:
         raise ValueError(f"target_date {target_date} not found in Z-score index.")
 
     target_vec = zs.loc[target_date].values  # shape (7,)
+    if np.isnan(target_vec).any():
+        missing = list(zs.columns[np.isnan(target_vec)])
+        raise ValueError(
+            f"target_date {target_date.date()} is incomplete: missing {missing}. "
+            "Use latest_complete_date() to pick a fully observed month."
+        )
 
-    # Squared Euclidean distance for each historical row
-    diff = zs.values - target_vec            # broadcast (T, 7)
-    sq_dist = np.nansum(diff ** 2, axis=1)   # sum across variables → (T,)
+    # Euclidean distance (paper eq. 1) for each historical row
+    diff = zs.values - target_vec                    # broadcast (T, 7)
+    sq_dist = np.sqrt(np.nansum(diff ** 2, axis=1))  # (T,)
 
     scores = pd.Series(sq_dist, index=zs.index, name="global_score")
 
@@ -139,38 +161,6 @@ def get_dissimilar_periods(
     scores = compute_global_scores(zscores, target_date, exclude_recent_months)
     ranked = rank_regimes(scores)
     return ranked[ranked["regime"] == "dissimilar"].sort_values("global_score", ascending=False).head(n)
-
-
-# ---------------------------------------------------------------------------
-# Full historical global score time series (for dashboard chart)
-# ---------------------------------------------------------------------------
-
-def compute_global_score_history(
-    zscores: pd.DataFrame,
-    exclude_recent_months: int = EXCLUDE_RECENT_MONTHS,
-) -> pd.Series:
-    """
-    Compute global scores for each month in the Z-score history,
-    treating each month as the 'current' date in turn.
-    This produces the time series used in regime-shift detection and charts.
-
-    Returns
-    -------
-    pd.Series  index = date, values = global score at that date
-               (minimum distance to any valid historical month)
-    """
-    zs = zscores.dropna(how="all")
-    min_scores = {}
-
-    for target_date in zs.index:
-        scores = compute_global_scores(zs, target_date, exclude_recent_months)
-        valid = scores.dropna()
-        if len(valid) > 0:
-            min_scores[target_date] = valid.min()
-        else:
-            min_scores[target_date] = np.nan
-
-    return pd.Series(min_scores, name="min_global_score")
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ Identifies which historical periods are most similar to current market condition
 
 1. Surface the most analogous historical regimes
 2. Identify "anti-regimes" — the most dissimilar historical periods
-3. Detect potential regime shifts via EWMA of global scores
+3. Detect potential regime shifts: at each month, the distance to every earlier month is averaged with exponentially decaying weights (paper Exhibit 9)
 
 ## Seven State Variables
 
@@ -48,6 +48,12 @@ set FRED_API_KEY=your_key_here      # Windows
 streamlit run dashboard/app.py
 ```
 
+## Run the tests
+
+```bash
+python -m pytest tests
+```
+
 ## Project structure
 
 ```
@@ -61,6 +67,7 @@ Regimes/
 │   └── regime_shift.py    # EWMA regime shift detector
 ├── dashboard/
 │   └── app.py             # Streamlit live dashboard
+├── tests/                 # pytest suite (no network needed)
 ├── cache/                 # Parquet cache (git-ignored)
 └── requirements.txt
 ```

@@ -22,7 +22,7 @@ from config import (
     EXCLUDE_RECENT_MONTHS, QUANTILE_SIMILAR,
     HF_HORIZONS, UNSMOOTH_RETURNS,
 )
-from engine.similarity import compute_global_scores, rank_regimes
+from engine.similarity import compute_global_scores, rank_regimes, latest_complete_date
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def compute_views(
     """
     zs = zscores.dropna(how="all")
     if target_date is None:
-        target_date = zs.index[-1]
+        target_date = latest_complete_date(zs)
 
     if unsmooth:
         strategy_returns = unsmooth_dataframe(strategy_returns)
@@ -256,7 +256,7 @@ def current_regime_stats(
     """
     zs = zscores.dropna(how="all")
     if target_date is None:
-        target_date = zs.index[-1]
+        target_date = latest_complete_date(zs)
 
     if unsmooth:
         strategy_returns = unsmooth_dataframe(strategy_returns)

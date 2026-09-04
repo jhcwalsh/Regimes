@@ -112,10 +112,36 @@ def fetch_fred_series(start: str = "1920-01-01") -> pd.DataFrame:
     return pd.DataFrame(frames)
 
 
+def compute_stock_bond_correlation(
+    eq_prices: pd.Series,
+    yields: pd.Series,
+    window_days: int,
+) -> pd.Series:
+    """
+    Rolling stock-bond correlation from daily equity prices and daily 10-yr yields.
+
+    Bond return is proxied by the negative of the daily yield change (a bond's
+    price falls when its yield rises), so the correlation carries the sign of
+    the stock-bond *return* correlation. Collapsed to month-end.
+    """
+    eq_ret = eq_prices.pct_change()
+    bd_ret = -yields.diff()
+
+    combined = pd.concat([eq_ret, bd_ret], axis=1).dropna()
+    combined.columns = ["equity", "bond"]
+
+    rolling_corr = combined["equity"].rolling(window=window_days).corr(combined["bond"])
+
+    # Collapse to month-end with the normalised index used by every series
+    monthly = _to_month_period(rolling_corr.resample("ME").last())
+    monthly.name = "stock_bond_corr"
+    return monthly
+
+
 def fetch_stock_bond_correlation(start: str = "1960-01-01") -> pd.Series:
     """
     Rolling 3-year stock-bond correlation computed from daily returns.
-    Uses ^GSPC (equity) and ^TNX (10-yr yield, inverted for bond returns).
+    Uses ^GSPC (equity) and ^TNX (10-yr yield; negative yield change proxies bond return).
     Pre-1962 data is not available from yfinance, so series starts ~1962.
     """
     cached = _load_cache("stock_bond_corr")
@@ -127,19 +153,7 @@ def fetch_stock_bond_correlation(start: str = "1960-01-01") -> pd.Series:
     eq = yf.download(SP500_TICKER, start=start, interval="1d", auto_adjust=True, progress=False)["Close"].squeeze()
     bd = yf.download(BOND_TICKER,  start=start, interval="1d", auto_adjust=True, progress=False)["Close"].squeeze()
 
-    eq_ret  = eq.pct_change().dropna()
-    # Bond return ≈ negative change in yield (duration proxy, sign flip)
-    bd_ret  = (-bd).pct_change().dropna()
-
-    combined = pd.concat([eq_ret, bd_ret], axis=1).dropna()
-    combined.columns = ["equity", "bond"]
-
-    rolling_corr = combined["equity"].rolling(window=window_days).corr(combined["bond"])
-
-    # Collapse to month-end with normalised index
-    monthly = _to_month_period(rolling_corr.resample("ME").last())
-    monthly.name = "stock_bond_corr"
-
+    monthly = compute_stock_bond_correlation(eq, bd, window_days)
     _save_cache("stock_bond_corr", monthly)
     return monthly
 

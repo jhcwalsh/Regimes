@@ -31,8 +31,8 @@ from config import (
 )
 from data.fetcher import fetch_all
 from data.transformer import compute_zscore, current_zscores, describe_transformed
-from engine.similarity import compute_global_scores, rank_regimes, get_similar_periods, get_dissimilar_periods
-from engine.regime_shift import compute_ewma_regime_shift, get_half_lives, current_regime_shift_score, detect_regime_shift_events
+from engine.similarity import compute_global_scores, rank_regimes, latest_complete_date
+from engine.regime_shift import compute_regime_shift, get_half_lives, current_regime_shift_score, detect_regime_shift_events
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -107,8 +107,9 @@ with st.sidebar.expander("Diagnostics"):
     st.write("**Current Z-scores:**")
     st.dataframe(cur_zs.round(3).to_frame("Z-Score"))
 
-zs_clean = zscores.dropna(how="all")
-target_date = zs_clean.index[-1]
+# Score against the latest month with ALL seven variables observed; the last
+# row is usually partial because FRED series publish with a lag.
+target_date = latest_complete_date(zscores)
 
 # ---------------------------------------------------------------------------
 # Compute similarity scores
@@ -136,9 +137,7 @@ n_dissim    = (ranked["regime"] == "dissimilar").sum()
 # Regime shift score
 if "ewma_df" not in st.session_state or refresh:
     with st.spinner("Computing regime shift indicator..."):
-        from engine.similarity import compute_global_score_history
-        hist_scores = compute_global_score_history(zscores, exclude_mo)
-        ewma_df     = compute_ewma_regime_shift(hist_scores)
+        ewma_df       = compute_regime_shift(zscores)
         shift_reading = current_regime_shift_score(ewma_df)
         st.session_state["ewma_df"]       = ewma_df
         st.session_state["shift_reading"] = shift_reading
@@ -258,7 +257,8 @@ with tab2:
     st.subheader(f"Most Similar Historical Periods to {target_date.strftime('%B %Y')}")
     st.caption(
         f"Bottom {quantile_q*100:.0f}% of global scores = most similar. "
-        f"Excluding last {exclude_mo} months. Lower global score = more similar."
+        f"Excluding last {exclude_mo} months. Global score = Euclidean distance "
+        "across the seven Z-scores (lower = more similar)."
     )
 
     similar = ranked[ranked["regime"] == "similar"].head(N_DISPLAY_SIMILAR)
@@ -346,9 +346,10 @@ with tab3:
 with tab4:
     st.subheader("Regime Shift Detector — EWMA of Global Scores")
     st.caption(
-        "Per Exhibit 9 of the paper. Rising EWMA indicates the current environment "
-        "is increasingly different from recent history — a potential regime shift. "
-        "Historically peaked at: Jan 2009, May 2020, Oct 2022."
+        "Per Exhibit 9 of the paper: at each month T, the distance from T to every "
+        "earlier month is averaged with exponentially decaying weights (most weight on "
+        "the recent past). A rising value means today is drifting away from the recent "
+        "past — a potential regime shift. Paper peaks: Oct 2008 / Jan 2009, May 2020, Oct 2022."
     )
 
     # Half-life table
@@ -379,6 +380,7 @@ with tab4:
 
     # Annotate known regime shift events
     known_events = {
+        "Oct 2008": "2008-10-31",
         "Jan 2009": "2009-01-31",
         "May 2020": "2020-05-31",
         "Oct 2022": "2022-10-31",
