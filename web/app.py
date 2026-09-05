@@ -14,9 +14,10 @@ import streamlit as st
 
 from config import EXCLUDE_RECENT_MONTHS, QUANTILE_SIMILAR
 from engine.regime_shift import compute_regime_shift, current_regime_shift_score, get_half_lives
+from engine.factor_timing import BACKTEST_START, performance, run_backtest
 from engine.similarity import compute_global_scores, latest_complete_date, rank_regimes
 from web import charts, layout, style
-from web.data import cache_written_at, load_frames, needs_refresh
+from web.data import cache_written_at, load_factors, load_frames, needs_refresh
 
 N_TABLE = 10
 
@@ -79,6 +80,11 @@ def stale_note(last_obs: pd.Series, current: pd.Timestamp, labels: dict[str, str
         joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
         parts.append(f"{joined} ({_month(m)})")
     return "Carried forward from the last observation: " + "; ".join(parts) + "."
+FACTOR_LABELS = {"Mkt-RF": "Market", "SMB": "Size", "HML": "Value", "RMW": "Profitability",
+                 "CMA": "Investment", "Mom": "Momentum"}
+PAPER_SHARPE = {"q1": 0.95, "q2": 0.80, "q3": 0.78, "q4": 0.85, "q5": 0.17, "long_only": 1.00, "spread": 0.82}
+PAPER_CORR = {"q1": 0.76, "q2": 0.79, "q3": 0.78, "q4": 0.73, "q5": 0.48, "spread": 0.37}
+PAPER_QUANTILE_SPREAD = {2: 0.66, 3: 0.62, 4: 0.74, 5: 0.82, 10: 0.69, 20: 0.46}
 PAPER_URL = "https://people.duke.edu/~charvey/Research/Published_Papers/P176_Regimes.pdf"
 SSRN_URL = "https://ssrn.com/abstract=5164863"
 
@@ -97,9 +103,31 @@ def _shift(zscores: pd.DataFrame) -> pd.DataFrame:
     return compute_regime_shift(zscores)
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading factor returns…")
+def _factors(refresh: bool) -> pd.DataFrame:
+    return load_factors(refresh)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner="Running the factor-timing backtest…")
+def _backtest(zscores: pd.DataFrame, factors: pd.DataFrame) -> dict:
+    out = run_backtest(zscores, factors)
+    out["performance"] = performance(out["returns"])
+    out["robustness"] = {
+        n: performance(run_backtest(zscores, factors, n_quantiles=n)["returns"].loc["1985":"2024"])
+        .loc["spread", "sharpe"]
+        for n in PAPER_QUANTILE_SPREAD
+    }
+    return out
+
+
 def get_data(allow_refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     refresh = allow_refresh and needs_refresh(cache_written_at(), datetime.now())
     return _frames(refresh)
+
+
+def get_factors(allow_refresh: bool) -> pd.DataFrame:
+    refresh = allow_refresh and needs_refresh(cache_written_at(), datetime.now())
+    return _factors(refresh)
 
 
 def _month(ts: pd.Timestamp) -> str:
@@ -204,6 +232,94 @@ def view_explore(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) 
     similarity_blocks(zscores, target)
 
 
+def _perf_table(perf: pd.DataFrame, rows: list[tuple[str, str]]) -> None:
+    html = ""
+    for key, label in rows:
+        if key not in perf.index:
+            continue
+        r = perf.loc[key]
+        rust = " rust" if key in ("q1", "spread") else ""
+        html += (f"<tr><td class='{rust.strip()}'>{label}</td><td class='num'>{r['ann_return_%']:.1f}</td>"
+                 f"<td class='num'>{r['ann_vol_%']:.1f}</td><td class='num{rust}'>{r['sharpe']:.2f}</td>"
+                 f"<td class='num'>{PAPER_SHARPE.get(key, float('nan')):.2f}</td>"
+                 f"<td class='num'>{r['corr_to_long_only']:.2f}</td>"
+                 f"<td class='num'>{PAPER_CORR.get(key, float('nan')):.2f}</td>"
+                 f"<td class='num'>{r['max_drawdown_%']:.0f}</td></tr>")
+    st.markdown("<table class='le-table'><thead><tr><th>Portfolio</th><th style='text-align:right'>Return %/yr</th>"
+                "<th style='text-align:right'>Vol %/yr</th><th style='text-align:right'>Sharpe</th>"
+                "<th style='text-align:right'>Paper Sharpe</th><th style='text-align:right'>Corr. to long-only</th>"
+                "<th style='text-align:right'>Paper corr.</th><th style='text-align:right'>Max drawdown %</th></tr></thead>"
+                f"<tbody>{html}</tbody></table>", unsafe_allow_html=True)
+
+
+def view_factors(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -> None:
+    factors = get_factors(allow_refresh=st.session_state.get("_allow_refresh", True))
+    out = _backtest(zscores, factors)
+    r = out["returns"]
+    perf = out["performance"]
+    window = perf.loc["q1"]
+
+    layout.hero(
+        "004 · Regimes",
+        "Do the analogues <em>predict</em> anything?",
+        "The paper's test, re-run on this data: six long–short equity factors, each held long next month if "
+        "it rose after the similar months and short if it fell. Returns from Ken French's library.",
+    )
+    layout.tiles([
+        (f"{perf.loc['q1', 'sharpe']:.2f}", "Sharpe · most similar quintile", True),
+        (f"{perf.loc['q5', 'sharpe']:.2f}", "Sharpe · anti-regime quintile", False),
+        (f"{perf.loc['spread', 'sharpe']:.2f}", "Sharpe · similar minus anti-regime", False),
+        (f"{r.index[0].strftime('%b %Y')} – {r.index[-1].strftime('%b %Y')}", f"{int(window['months'])} months", False),
+    ])
+
+    layout.section("Quintile portfolios against <em>long-only</em>",
+                   "Cumulative sum of monthly returns, equal-weighted across the six factors. Quintile 1 trades in the "
+                   "direction of returns after the 20 % most similar months; quintile 5 after the 20 % least similar.")
+    _plot(charts.cumulative_lines(
+        r, {"q1": "Quintile 1 · similar", "q2": "Quintile 2", "q3": "Quintile 3", "q4": "Quintile 4",
+            "q5": "Quintile 5 · anti-regime", "long_only": "Long only, all six"},
+        emphasis=["q1"], reference="long_only"))
+
+    layout.section("The <em>spread</em>: long quintile 1, short quintile 5",
+                   "The paper's headline portfolio. Its appeal is the low correlation to simply being long the factors.")
+    _plot(charts.cumulative_lines(r, {"spread": "Quintile 1 minus quintile 5", "long_only": "Long only"},
+                                  emphasis=["spread"], reference="long_only", height=300))
+
+    layout.section("Scorecard, with the paper's numbers beside ours",
+                   "Paper: Exhibit 10, 1985–2024. Ours: the full holding window shown above, same rules.")
+    _perf_table(perf, [("q1", "Quintile 1 · similar"), ("q2", "Quintile 2"), ("q3", "Quintile 3"),
+                       ("q4", "Quintile 4"), ("q5", "Quintile 5 · anti-regime"), ("long_only", "Long only"),
+                       ("spread", "Quintile 1 minus 5")])
+    q1s, q5s, sp = perf.loc["q1", "sharpe"], perf.loc["q5", "sharpe"], perf.loc["spread", "sharpe"]
+    st.markdown(f"Quintile 1 comes out at {q1s:.2f} against the paper's 0.95, with the same 0.76 correlation to "
+                f"long-only, and the quintiles rank in the paper's order. The anti-regime quintile is less bad here "
+                f"({q5s:.2f} versus 0.17), so the spread is weaker ({sp:.2f} versus 0.82). The likely reasons are the "
+                f"data: free series in place of Bloomberg and Man Group's, and a history that starts in 1971 rather "
+                f"than 1966, which leaves fewer candidates for the earliest decisions.")
+
+    layout.section("Positions for next month")
+    pos = out["positions"]
+    rows = "".join(f"<tr><td>{FACTOR_LABELS.get(f, f)}</td>"
+                   f"<td class='num{' rust' if pos.loc[f, 'q1'] > 0 else ''}'>{'long' if pos.loc[f, 'q1'] > 0 else 'short'}</td>"
+                   f"<td class='num'>{'long' if pos.loc[f, 'q5'] > 0 else 'short'}</td></tr>" for f in pos.index)
+    st.markdown("<table class='le-table'><thead><tr><th>Factor</th><th style='text-align:right'>Similar months say</th>"
+                f"<th style='text-align:right'>Anti-regime months say</th></tr></thead><tbody>{rows}</tbody></table>",
+                unsafe_allow_html=True)
+    layout.note(f"Decided at {out['decisions'][-1].strftime('%B %Y')} from the 20 % most and least similar months. "
+                "Not investment advice; the paper's own framing is a test of information content, not a product.")
+
+    layout.section("Robustness to the quantile choice",
+                   "Paper, Exhibit 12: Sharpe of the similar-minus-dissimilar spread, 1985–2024, for different cuts.")
+    rob = out["robustness"]
+    rows = "".join(f"<tr><td>{n} quantiles</td><td class='num'>{rob[n]:.2f}</td><td class='num'>{PAPER_QUANTILE_SPREAD[n]:.2f}</td></tr>"
+                   for n in PAPER_QUANTILE_SPREAD)
+    st.markdown("<table class='le-table'><thead><tr><th>Cut</th><th style='text-align:right'>Spread Sharpe, ours</th>"
+                f"<th style='text-align:right'>Paper</th></tr></thead><tbody>{rows}</tbody></table>", unsafe_allow_html=True)
+    st.markdown("The paper's spread is strongest at quintiles and fades with finer cuts. Ours strengthens with finer "
+                "cuts, which says the useful information here sits in the extremes of the ranking rather than in "
+                "the quintile boundaries. Treat both as evidence that the ordering matters and the exact cut does not.")
+
+
 def view_method(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -> None:
     layout.hero(
         "004 · Regimes",
@@ -267,7 +383,7 @@ def view_method(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -
                 f"This app is an independent replication and is not affiliated with the authors.")
 
 
-VIEW_FUNCS = {"now": view_now, "explore": view_explore, "method": view_method}
+VIEW_FUNCS = {"now": view_now, "explore": view_explore, "factors": view_factors, "method": view_method}
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +401,7 @@ def main(view: str | None = None, allow_refresh: bool = True) -> None:
         view = "now"
     layout.top_bar(view)
 
+    st.session_state["_allow_refresh"] = allow_refresh
     try:
         raw, zscores, last_obs = get_data(allow_refresh)
     except Exception as exc:  # a data problem must read as a card, not a traceback

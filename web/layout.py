@@ -6,7 +6,7 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
-VIEWS = [("now", "Now"), ("explore", "Explore"), ("method", "Method")]
+VIEWS = [("now", "Now"), ("explore", "Explore"), ("factors", "Factors"), ("method", "Method")]
 HOME = "https://lazyeconomist.com"
 
 

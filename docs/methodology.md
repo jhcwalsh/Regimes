@@ -81,7 +81,7 @@ value means the environment has moved a lot (Exhibit 9) [1, pp. 16–18].
 Labelled peaks: Oct 82, May 83, Jul 90, Dec 90, Jul 07, Oct 08, Jan 09, Feb 20, May 20,
 Oct 22, May 23 [1, p. 17].
 
-## Step 6: prediction (paper only; not in the app)
+## Step 6: prediction (the app's Factors view)
 
 Six long-short factors (Fama-French five plus 12-month momentum). Long a factor if the
 average one-month-ahead return after the similar months is positive, else short;
@@ -107,7 +107,7 @@ and Z-score lookbacks of 1, 3 and 5 years (Exhibit 13) [1, pp. 20–21].
 | Similar set | 15 % exhibits / quintiles backtest | 20 % throughout |
 | Volatility splice | VIX prepended with realised vol | Same, no level adjustment at 1990 |
 | Latest month | — | Lagging FRED series forward-filled up to a month |
-| Factor timing | Exhibits 10–13 | Not implemented |
+| Factor timing | Exhibits 10–13 | Implemented (Factors view): Q1 Sharpe 0.87 vs 0.95, same 0.76 correlation; Q5 0.44 vs 0.17; spread 0.34 vs 0.82 |
 
 The engine's tests pin the square-rooted distance, the 36-month mask, the up-to-T rule
 and the regime-shift construction (`tests/`).
@@ -130,6 +130,7 @@ trust only conclusions that survive the paper's own robustness checks.
    Dynamic Strategies.* Financial Analysts Journal, 68(3), 22–39.
 4. Kritzman, M., Kulasekaran, C. and Turkington, D. (2023). *Portfolio Construction When
    Regimes Are Ambiguous.* The Journal of Portfolio Management, 50(1), 8–18.
-5. FRED series GS10, TB3MS, WTISPLC, PCOPPUSDM, VIXCLS; Yahoo Finance ^GSPC, ^TNX; World Bank
+5. FRED series GS10, TB3MS, WTISPLC, PCOPPUSDM, VIXCLS; Yahoo Finance ^GSPC, ^TNX; Kenneth R. French
+   Data Library (Fama-French 5 factors 2x3, Momentum factor), https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html; World Bank
    Commodity Price Data (Pink Sheet), monthly prices, https://www.worldbank.org/en/research/commodity-markets.
 6. Design spec: `docs/superpowers/specs/2026-09-03-regimes-site-design.md`.

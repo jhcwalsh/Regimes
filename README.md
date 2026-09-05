@@ -50,7 +50,7 @@ The site-styled app at the repo root reads the FRED key from the environment onl
 streamlit run app.py
 ```
 
-Views are chosen by query parameter: `?view=now` (default), `?view=explore&month=2009-01-31`, `?view=method`.
+Views are chosen by query parameter: `?view=now` (default), `?view=explore&month=2009-01-31`, `?view=factors` (the paper's factor-timing backtest on Ken French data), `?view=method`.
 The parquet cache refreshes itself when it is more than a week old.
 
 Deploy on the Mac mini follows the hosting runbook: `docker compose up -d --build` in `~/apps/regimes`
@@ -77,11 +77,13 @@ python -m pytest tests
 Regimes/
 ├── config.py              # All parameters in one place
 ├── data/
-│   ├── fetcher.py         # FRED + yfinance data pipeline
+│   ├── fetcher.py         # FRED + yfinance + World Bank data pipeline
+│   ├── french.py          # Ken French factor library loader
 │   └── transformer.py     # Z-score transformation
 ├── engine/
 │   ├── similarity.py      # Euclidean distance / global score
-│   └── regime_shift.py    # EWMA regime shift detector
+│   ├── regime_shift.py    # EWMA regime shift detector
+│   └── factor_timing.py   # Paper's factor-timing backtest (Exhibits 10-13)
 ├── app.py                 # Public app entry point (lazyeconomist.com style)
 ├── web/                   # Public app: views, house style, charts, data freshness
 ├── dashboard/

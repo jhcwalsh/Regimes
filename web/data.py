@@ -44,3 +44,13 @@ def load_frames(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     unfilled = fetch_all(refresh_cache=refresh, fill=False)
     raw = unfilled.ffill()
     return raw, compute_zscore(raw), last_observed(unfilled)
+
+
+def load_factors(refresh: bool) -> pd.DataFrame:
+    """Ken French factor returns (percent, monthly). Refetches when `refresh` is True."""
+    from data.french import fetch_french_factors
+    from data.fetcher import _cache_path
+
+    if refresh and os.path.exists(_cache_path("french_factors")):
+        os.remove(_cache_path("french_factors"))
+    return fetch_french_factors()

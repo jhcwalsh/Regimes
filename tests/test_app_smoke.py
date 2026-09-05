@@ -20,7 +20,7 @@ def _run(view: str) -> AppTest:
     return at.run()
 
 
-@pytest.mark.parametrize("view", ["now", "explore", "method"])
+@pytest.mark.parametrize("view", ["now", "explore", "factors", "method"])
 def test_view_renders_without_exception(view):
     at = _run(view)
     assert not at.exception, at.exception

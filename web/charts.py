@@ -125,6 +125,28 @@ def regime_shift_chart(ewma: pd.DataFrame, peaks: dict[str, str] | None = None) 
     return fig
 
 
+def cumulative_lines(returns: pd.DataFrame, labels: dict[str, str], emphasis: list[str] = (),
+                     reference: str | None = None, height: int = 360) -> go.Figure:
+    """Cumulative sum of monthly percent returns, one line per column of `labels`.
+    Emphasised columns in rust, the reference dotted in ink, the rest muted."""
+    fig = _fig(height=height)
+    for col, label in labels.items():
+        if col not in returns:
+            continue
+        y = returns[col].fillna(0).cumsum()
+        if col in emphasis:
+            line = dict(color=RUST, width=2.2)
+        elif col == reference:
+            line = dict(color=INK, width=1.6, dash="dot")
+        else:
+            line = dict(color=MUTED, width=1)
+        fig.add_trace(go.Scatter(x=y.index, y=y.values, mode="lines", name=label, line=line,
+                                 hovertemplate="%{x|%b %Y}: %{y:.0f}%<extra></extra>"))
+    fig.add_hline(y=0, line_color=RULE)
+    fig.update_layout(yaxis=dict(title="Cumulative return, % (sum of monthly)"))
+    return fig
+
+
 def raw_line(series: pd.Series, title: str, height: int = 180) -> go.Figure:
     fig = _fig(height=height)
     fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines", name=title,

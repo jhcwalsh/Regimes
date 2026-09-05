@@ -57,3 +57,16 @@ def test_regime_shift_chart_has_mean_and_four_lookbacks():
     assert "Mean of four" in names
     assert sum(n.endswith("lookback") for n in names) == 4
     assert fig.data[names.index("Mean of four")].line.color == INK
+
+
+def test_cumulative_lines_emphasises_named_series_and_cumsums_percent():
+    idx = pd.date_range("2000-01-31", periods=5, freq="ME")
+    r = pd.DataFrame({"q1": [1.0, 1.0, -1.0, 2.0, 0.0], "long_only": [0.5] * 5, "q5": [0.0] * 5}, index=idx)
+    fig = charts.cumulative_lines(r, {"q1": "Quintile 1", "q5": "Quintile 5", "long_only": "Long only"},
+                                  emphasis=["q1"], reference="long_only")
+    names = [t.name for t in fig.data]
+    assert names == ["Quintile 1", "Quintile 5", "Long only"]
+    q1 = fig.data[0]
+    assert list(q1.y) == [1.0, 2.0, 1.0, 3.0, 3.0]
+    assert q1.line.color == RUST
+    assert fig.data[2].line.dash == "dot"
