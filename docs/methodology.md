@@ -17,10 +17,10 @@ regimes [2].
 
 | # | Variable | Paper | This replication |
 |---|---|---|---|
-| 1 | Equity market | S&P 500 level, in logs | Yahoo `^GSPC` monthly close |
+| 1 | Equity market | S&P 500 level, in logs | Yahoo `^GSPC` daily from 1927, month-end close |
 | 2 | Yield curve | 10-year minus 3-month yield | FRED `GS10` − `TB3MS` |
-| 3 | Oil | WTI crude price | FRED `DCOILWTICO` |
-| 4 | Copper | Copper price (adjusted futures) | FRED `PCOPPUSDM` |
+| 3 | Oil | WTI crude price | FRED `WTISPLC`, monthly spot from 1946 |
+| 4 | Copper | Copper price (adjusted futures) | World Bank Pink Sheet (1960–) spliced with FRED `PCOPPUSDM` |
 | 5 | Monetary policy | US 3-month T-bill yield | FRED `TB3MS` |
 | 6 | Volatility | VIX, prepended with realised vol before 1990 | FRED `VIXCLS`; realised vol from daily `^GSPC` |
 | 7 | Stock-bond correlation | Rolling 3-year correlation of daily returns | `^GSPC` returns vs. minus the change in `^TNX`, 756-day window |
@@ -102,8 +102,8 @@ and Z-score lookbacks of 1, 3 and 5 years (Exhibit 13) [1, pp. 20–21].
 
 | Aspect | Paper | Replication |
 |---|---|---|
-| Sources | FRED, Man Group, Bloomberg | FRED and Yahoo only |
-| History | Scores from 1966 | Scores from December 1997 (copper and oil bind) |
+| Sources | FRED, Man Group, Bloomberg | FRED, Yahoo Finance and the World Bank Pink Sheet, all free |
+| History | Scores from 1966 | Scores from December 1970 (daily 10-year yields start 1962) |
 | Similar set | 15 % exhibits / quintiles backtest | 20 % throughout |
 | Volatility splice | VIX prepended with realised vol | Same, no level adjustment at 1990 |
 | Latest month | — | Lagging FRED series forward-filled up to a month |
@@ -130,5 +130,6 @@ trust only conclusions that survive the paper's own robustness checks.
    Dynamic Strategies.* Financial Analysts Journal, 68(3), 22–39.
 4. Kritzman, M., Kulasekaran, C. and Turkington, D. (2023). *Portfolio Construction When
    Regimes Are Ambiguous.* The Journal of Portfolio Management, 50(1), 8–18.
-5. FRED series GS10, TB3MS, DCOILWTICO, PCOPPUSDM, VIXCLS; Yahoo Finance ^GSPC, ^TNX.
+5. FRED series GS10, TB3MS, WTISPLC, PCOPPUSDM, VIXCLS; Yahoo Finance ^GSPC, ^TNX; World Bank
+   Commodity Price Data (Pink Sheet), monthly prices, https://www.worldbank.org/en/research/commodity-markets.
 6. Design spec: `docs/superpowers/specs/2026-09-03-regimes-site-design.md`.

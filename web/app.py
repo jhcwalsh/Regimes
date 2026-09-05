@@ -30,13 +30,13 @@ VAR_LABELS = {
     "stock_bond_corr": "Stock–bond correlation",
 }
 VAR_SOURCES = {
-    "sp500": ("S&P 500 index level, monthly close", "Yahoo Finance"),
-    "yield_curve": ("10-year Treasury yield minus 3-month T-bill", "FRED GS10, TB3MS"),
-    "oil": ("West Texas Intermediate spot price", "FRED DCOILWTICO"),
-    "copper": ("Copper price, USD per metric ton", "FRED PCOPPUSDM"),
-    "tbill_3m": ("3-month Treasury bill yield", "FRED TB3MS"),
+    "sp500": ("S&P 500 index level, month-end close from daily data, 1927 on", "Yahoo Finance ^GSPC"),
+    "yield_curve": ("10-year Treasury yield minus 3-month T-bill, 1953 on", "FRED GS10, TB3MS"),
+    "oil": ("West Texas Intermediate spot price, monthly, 1946 on", "FRED WTISPLC"),
+    "copper": ("Copper, USD per metric ton, 1960 on", "World Bank Pink Sheet, FRED PCOPPUSDM"),
+    "tbill_3m": ("3-month Treasury bill yield, 1934 on", "FRED TB3MS"),
     "volatility": ("VIX from 1990, realised S&P 500 volatility before", "FRED VIXCLS, Yahoo Finance"),
-    "stock_bond_corr": ("Rolling 3-year correlation of daily stock and bond returns", "Yahoo Finance ^GSPC, ^TNX"),
+    "stock_bond_corr": ("Rolling 3-year correlation of daily stock and bond returns, 1965 on", "Yahoo Finance ^GSPC, ^TNX"),
 }
 PAPER_PEAKS = {"Oct 08": "2008-10-31", "Jan 09": "2009-01-31", "May 20": "2020-05-31", "Oct 22": "2022-10-31"}
 EXHIBITS = [
@@ -214,11 +214,12 @@ def view_method(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
             layout.note(VAR_LABELS[key])
             _plot(charts.raw_line(raw[key].dropna(), VAR_LABELS[key]))
 
-    layout.section("What this replication <em>cannot</em> do yet")
+    layout.section("How far back it <em>reaches</em>")
     first = zscores.dropna(how="any").index[0]
-    st.markdown(f"The paper's series run from the 1960s. The free copper and oil series used here begin in the "
-                f"1990s, so scoring starts in {_month(first)} and the paper's 1970s and 1980s analogues cannot "
-                f"appear. Extending the history is the next step.")
+    st.markdown(f"Scoring starts in {_month(first)}. The binding series is the stock–bond correlation, which "
+                f"needs daily 10-year yields, available free only from 1962, plus a three-year window and the "
+                f"ten-year scaling. The paper's own scores start in 1966. Everything else runs from 1927 to 1960, "
+                f"so the 1973 oil shock, the 1977 to 1980 inflation and the early-1980s recessions are all in reach.")
 
     layout.section("The paper")
     st.markdown(f"Mulliner A., Harvey C.R., Xia C., Fang E. and Van Hemert O., *Regimes*, "

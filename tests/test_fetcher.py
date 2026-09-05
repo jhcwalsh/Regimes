@@ -46,9 +46,9 @@ def test_fred_series_load_from_cache_without_api_key(tmp_path, monkeypatch):
     from config import FRED_SERIES
 
     idx = pd.date_range("2020-01-31", periods=3, freq="ME")
-    for name in FRED_SERIES:
-        pd.Series([1.0, 2.0, 3.0], index=idx, name=name).to_frame().to_parquet(tmp_path / f"{name}.parquet")
     monkeypatch.setattr(fetcher, "CACHE_DIR", str(tmp_path))
+    for name in FRED_SERIES:
+        pd.Series([1.0, 2.0, 3.0], index=idx, name=name).to_frame().to_parquet(fetcher._cache_path(name))
     monkeypatch.setattr(fetcher, "FRED_API_KEY", "")
     monkeypatch.delenv("FRED_API_KEY", raising=False)
 

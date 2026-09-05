@@ -16,12 +16,18 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 # FRED series IDs for the seven state variables
 # ---------------------------------------------------------------------------
 FRED_SERIES = {
-    "yield_10yr":  "GS10",        # 10-Year Treasury Constant Maturity Rate
-    "tbill_3m":    "TB3MS",       # 3-Month Treasury Bill Secondary Market Rate
-    "oil":         "DCOILWTICO",  # WTI Crude Oil Price ($/barrel)
-    "copper":      "PCOPPUSDM",   # Copper Price (USD/metric ton, monthly)
-    "vix":         "VIXCLS",      # CBOE VIX (from 1990)
+    "yield_10yr":  "GS10",        # 10-Year Treasury Constant Maturity Rate (1953-)
+    "tbill_3m":    "TB3MS",       # 3-Month Treasury Bill Secondary Market Rate (1934-)
+    "oil":         "WTISPLC",     # WTI spot, monthly (1946-); DCOILWTICO only starts 1986
+    "vix":         "VIXCLS",      # CBOE VIX (1990-)
 }
+
+# Copper: World Bank "Pink Sheet" (LME cash, $/mt, 1960-, snapshot updated irregularly)
+# spliced with FRED's live IMF series (1992-). The two are the same price on the overlap.
+COPPER_FRED_ID   = "PCOPPUSDM"
+COPPER_WB_URL    = ("https://thedocs.worldbank.org/en/doc/5d903e848db1d1b83e0ec8f744e55570-0350012021/"
+                    "related/CMO-Historical-Data-Monthly.xlsx")
+COPPER_WB_COLUMN = "Copper"
 
 # S&P 500 and daily equity/bond data pulled via yfinance
 SP500_TICKER   = "^GSPC"

@@ -2,10 +2,10 @@
 Data fetcher: pulls all seven state variables from FRED and yfinance.
 
 Variables (per Mulliner et al. 2026):
-  1. S&P 500 log price                  → yfinance ^GSPC (monthly close)
+  1. S&P 500 log price                  → yfinance ^GSPC daily (1927-), month-end close
   2. Yield curve (10yr - 3m T-bill)     → FRED GS10 - TB3MS
-  3. WTI crude oil price                → FRED DCOILWTICO
-  4. Copper price                       → FRED PCOPPUSDM
+  3. WTI crude oil price                → FRED WTISPLC (monthly spot, 1946-)
+  4. Copper price                       → World Bank Pink Sheet (1960-) spliced with FRED PCOPPUSDM
   5. US 3-month T-bill yield            → FRED TB3MS
   6. VIX / realized volatility          → FRED VIXCLS (1990+); realised vol pre-1990
   7. Rolling 3-yr stock-bond correlation → computed from daily ^GSPC + ^TNX
@@ -21,8 +21,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import (
     FRED_API_KEY, FRED_SERIES, SP500_TICKER, BOND_TICKER,
-    CORR_LOOKBACK_YRS, CACHE_DIR
+    CORR_LOOKBACK_YRS, CACHE_DIR,
+    COPPER_FRED_ID, COPPER_WB_URL, COPPER_WB_COLUMN,
 )
+
+# Bump when a series' source changes so stale cache files are ignored, not reused.
+CACHE_VERSION = "v2"
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +65,7 @@ def _to_monthly_end(series: pd.Series) -> pd.Series:
 
 def _cache_path(name: str) -> str:
     os.makedirs(CACHE_DIR, exist_ok=True)
-    return os.path.join(CACHE_DIR, f"{name}.parquet")
+    return os.path.join(CACHE_DIR, f"{name}.{CACHE_VERSION}.parquet")
 
 
 def _load_cache(name: str) -> pd.Series | None:
@@ -80,18 +84,87 @@ def _save_cache(name: str, series: pd.Series) -> None:
 # Individual variable fetchers
 # ---------------------------------------------------------------------------
 
+def monthly_close_from_daily(daily: pd.Series) -> pd.Series:
+    """Last observed value in each month, indexed at month-end."""
+    return daily.resample("ME").last().dropna()
+
+
+def parse_pink_sheet(sheet: pd.DataFrame, column: str) -> pd.Series:
+    """
+    Extract one commodity from the World Bank Pink Sheet 'Monthly Prices' tab read
+    with header=None: a name row, a units row, then rows keyed like '1960M01'.
+    """
+    header_row, col = None, None
+    for r in range(min(10, len(sheet))):
+        row = sheet.iloc[r].astype(str).str.strip().str.lower()
+        hits = np.flatnonzero((row == column.lower()).values)
+        if len(hits):
+            header_row, col = r, int(hits[0])
+            break
+    if header_row is None:
+        raise KeyError(f"column {column!r} not found in pink sheet")
+    body = sheet.iloc[header_row + 2:]
+    values = pd.to_numeric(body.iloc[:, col], errors="coerce")
+    keys = body.iloc[:, 0].astype(str).str.strip()
+    ok = values.notna() & keys.str.match(r"^\d{4}M\d{2}$")
+    idx = pd.PeriodIndex(keys[ok].str.replace("M", "-", regex=False), freq="M").to_timestamp("M")
+    return pd.Series(values[ok].values, index=idx, name=column.lower())
+
+
+def splice_levels(old: pd.Series, new: pd.Series) -> pd.Series:
+    """
+    Join a long historical series to a live one: `new` wins where it exists; `old`
+    is rescaled by the mean new/old ratio over the overlap so levels match.
+    """
+    both = pd.concat([old, new], axis=1).dropna()
+    if both.empty:
+        raise ValueError("splice_levels: the two series do not overlap")
+    ratio = float((both.iloc[:, 1] / both.iloc[:, 0]).mean())
+    return new.combine_first(old * ratio).sort_index()
+
+
+def _sp500_daily(start: str = "1920-01-01") -> pd.Series:
+    """Daily ^GSPC close from 1927, cached; feeds the S&P level, realised vol and the correlation."""
+    cached = _load_cache("sp500_daily")
+    if cached is not None:
+        return cached
+    s = yf.download(SP500_TICKER, start=start, interval="1d", auto_adjust=True, progress=False)["Close"].squeeze()
+    s.index = pd.to_datetime(s.index)
+    s.name = "sp500_daily"
+    _save_cache("sp500_daily", s)
+    return s
+
+
 def fetch_sp500_monthly(start: str = "1920-01-01") -> pd.Series:
-    """S&P 500 monthly close price (log scale used in transformation)."""
+    """S&P 500 month-end close derived from the daily series (log scale used in transformation)."""
     cached = _load_cache("sp500")
     if cached is not None:
         return _to_month_period(cached)
-
-    df = yf.download(SP500_TICKER, start=start, interval="1mo", auto_adjust=True, progress=False)
-    s = df["Close"].squeeze()
-    s = _to_month_period(s)
+    s = _to_month_period(monthly_close_from_daily(_sp500_daily(start)))
     s.name = "sp500"
     _save_cache("sp500", s)
     return s
+
+
+def fetch_copper_monthly() -> pd.Series:
+    """Copper, $/mt, 1960-: World Bank Pink Sheet history spliced with FRED's live series."""
+    cached = _load_cache("copper")
+    if cached is not None:
+        return _to_month_period(cached)
+
+    import io
+    import urllib.request
+    with urllib.request.urlopen(COPPER_WB_URL, timeout=60) as resp:
+        raw = resp.read()
+    sheet = pd.read_excel(io.BytesIO(raw), sheet_name="Monthly Prices", header=None)
+    wb = parse_pink_sheet(sheet, COPPER_WB_COLUMN)
+
+    live = _to_month_period(_fred().get_series(COPPER_FRED_ID, observation_start="1960-01-01"))
+
+    copper = _to_month_period(splice_levels(wb, live))
+    copper.name = "copper"
+    _save_cache("copper", copper)
+    return copper
 
 
 def fetch_fred_series(start: str = "1920-01-01") -> pd.DataFrame:
@@ -151,7 +224,7 @@ def fetch_stock_bond_correlation(start: str = "1960-01-01") -> pd.Series:
 
     window_days = int(CORR_LOOKBACK_YRS * 252)
 
-    eq = yf.download(SP500_TICKER, start=start, interval="1d", auto_adjust=True, progress=False)["Close"].squeeze()
+    eq = _sp500_daily()
     bd = yf.download(BOND_TICKER,  start=start, interval="1d", auto_adjust=True, progress=False)["Close"].squeeze()
 
     monthly = compute_stock_bond_correlation(eq, bd, window_days)
@@ -168,8 +241,7 @@ def fetch_realized_volatility_monthly(start: str = "1920-01-01") -> pd.Series:
     if cached is not None:
         return cached
 
-    df = yf.download(SP500_TICKER, start=start, interval="1d", auto_adjust=True, progress=False)
-    daily_ret = df["Close"].squeeze().pct_change().dropna()
+    daily_ret = _sp500_daily(start).pct_change().dropna()
     # Annualised realised vol (%)
     monthly_vol = daily_ret.resample("ME").std() * np.sqrt(252) * 100
     monthly_vol = _to_month_period(monthly_vol)
@@ -222,8 +294,8 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
     Columns:
         sp500            – S&P 500 log price
         yield_curve      – 10yr yield minus 3m T-bill (%)
-        oil              – WTI crude oil price
-        copper           – Copper price
+        oil              – WTI spot price (monthly, 1946-)
+        copper           – Copper price, $/mt (1960-)
         tbill_3m         – US 3-month T-bill yield
         volatility       – VIX / spliced realised vol
         stock_bond_corr  – Rolling 3-yr stock-bond correlation
@@ -235,6 +307,7 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
 
     fred_data    = fetch_fred_series(start)
     sp500        = fetch_sp500_monthly(start)
+    copper       = fetch_copper_monthly()
     vol          = build_vix_series()
     sb_corr      = fetch_stock_bond_correlation(start)
 
@@ -248,7 +321,7 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
 
     # Ensure every series has a normalised month-end index before concat
     series_list = [log_sp500, yield_curve,
-                   fred_data["oil"], fred_data["copper"], fred_data["tbill_3m"],
+                   fred_data["oil"], copper, fred_data["tbill_3m"],
                    vol, sb_corr]
     series_list = [_to_month_period(s) for s in series_list]
 

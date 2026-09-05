@@ -19,10 +19,10 @@ Identifies which historical periods are most similar to current market condition
 
 | # | Variable | Source |
 |---|----------|--------|
-| 1 | S&P 500 log price | Yahoo Finance |
+| 1 | S&P 500 log price | Yahoo Finance (daily from 1927, month-end close) |
 | 2 | Yield curve (10yr − 3m T-bill) | FRED: GS10, TB3MS |
-| 3 | WTI crude oil price | FRED: DCOILWTICO |
-| 4 | Copper price | FRED: PCOPPUSDM |
+| 3 | WTI crude oil price | FRED: WTISPLC (monthly, from 1946) |
+| 4 | Copper price | World Bank Pink Sheet (from 1960) spliced with FRED: PCOPPUSDM |
 | 5 | US 3-month T-bill yield | FRED: TB3MS |
 | 6 | VIX / realised volatility (spliced 1990) | FRED: VIXCLS + Yahoo Finance |
 | 7 | Rolling 3-yr stock–bond correlation | Computed from daily data |
