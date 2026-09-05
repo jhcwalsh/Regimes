@@ -287,7 +287,12 @@ def build_vix_series() -> pd.Series:
 # Master assembly
 # ---------------------------------------------------------------------------
 
-def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.DataFrame:
+def last_observed(unfilled: pd.DataFrame) -> pd.Series:
+    """Last month with a real (not forward-filled) observation, per column."""
+    return unfilled.apply(lambda c: c.last_valid_index())
+
+
+def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False, fill: bool = True) -> pd.DataFrame:
     """
     Fetch and assemble all seven state variables into a single monthly DataFrame.
 
@@ -299,6 +304,8 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
         tbill_3m         – US 3-month T-bill yield
         volatility       – VIX / spliced realised vol
         stock_bond_corr  – Rolling 3-yr stock-bond correlation
+
+    fill=True forward-fills lagging series to the latest month.
     """
     if refresh_cache:
         for f in os.listdir(CACHE_DIR):
@@ -330,8 +337,10 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False) -> pd.Data
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
 
-    # Forward-fill to cover FRED reporting lags (e.g. oil/copper released ~1m late)
-    df = df.ffill()
+    # Forward-fill to cover FRED reporting lags (e.g. oil/copper released ~1m late).
+    # Callers that need to know what was filled pass fill=False and use last_observed().
+    if fill:
+        df = df.ffill()
 
     return df
 

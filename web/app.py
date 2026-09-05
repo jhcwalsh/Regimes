@@ -40,11 +40,45 @@ VAR_SOURCES = {
 }
 PAPER_PEAKS = {"Oct 08": "2008-10-31", "Jan 09": "2009-01-31", "May 20": "2020-05-31", "Oct 22": "2022-10-31"}
 EXHIBITS = [
-    ("Jan 2009 · financial crisis", "2009-01-31"),
-    ("Feb 2020 · Covid", "2020-02-29"),
-    ("Apr 2020 · Covid", "2020-04-30"),
-    ("Aug 2022 · inflation surge", "2022-08-31"),
+    ("Jan 2009 · financial crisis", "2009-01-31",
+     "Paper, Exhibit 6: the similar months include all observed recessions, including the double-dip "
+     "recessions of the early 1980s."),
+    ("Feb 2020 · Covid", "2020-02-29",
+     "Paper, Exhibit 7: no obvious pattern. Covid was unique in the last hundred years, so the model "
+     "struggles to find prior regimes."),
+    ("Apr 2020 · Covid", "2020-04-30",
+     "Paper, Exhibit 7: as for February 2020, no convincing analogue; the matches are the least-bad ones."),
+    ("Aug 2022 · inflation surge", "2022-08-31",
+     "Paper, Exhibit 8: most similar to the inflation after the Iranian Revolution, 1977 to 1980, with "
+     "months from 1966 to 1970, the 1972 to 1974 oil embargo and the 1987 to 1990 boom."),
 ]
+
+
+def exhibit_claim(target: pd.Timestamp) -> str | None:
+    """What the paper reports for one of its worked months, or None for any other month."""
+    for _, date, claim in EXHIBITS:
+        if pd.Timestamp(date) == target:
+            return claim
+    return None
+
+
+def stale_note(last_obs: pd.Series, current: pd.Timestamp, labels: dict[str, str]) -> str:
+    """
+    One sentence naming the variables whose latest value is carried forward from an
+    earlier month, grouped by that month. Empty when everything is current.
+    """
+    stale = {k: pd.Timestamp(v) for k, v in last_obs.items() if pd.Timestamp(v) < current}
+    if not stale:
+        return ""
+    by_month: dict[pd.Timestamp, list[str]] = {}
+    for k, m in stale.items():
+        by_month.setdefault(m, []).append(labels.get(k, k))
+    parts = []
+    for m in sorted(by_month, reverse=True):
+        names = by_month[m]
+        joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        parts.append(f"{joined} ({_month(m)})")
+    return "Carried forward from the last observation: " + "; ".join(parts) + "."
 PAPER_URL = "https://people.duke.edu/~charvey/Research/Published_Papers/P176_Regimes.pdf"
 SSRN_URL = "https://ssrn.com/abstract=5164863"
 
@@ -54,7 +88,7 @@ SSRN_URL = "https://ssrn.com/abstract=5164863"
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Loading market data…")
-def _frames(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _frames(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     return load_frames(refresh)
 
 
@@ -63,7 +97,7 @@ def _shift(zscores: pd.DataFrame) -> pd.DataFrame:
     return compute_regime_shift(zscores)
 
 
-def get_data(allow_refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
+def get_data(allow_refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     refresh = allow_refresh and needs_refresh(cache_written_at(), datetime.now())
     return _frames(refresh)
 
@@ -111,7 +145,7 @@ def similarity_blocks(zscores: pd.DataFrame, target: pd.Timestamp) -> pd.DataFra
 # Views
 # ---------------------------------------------------------------------------
 
-def view_now(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
+def view_now(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -> None:
     target = latest_complete_date(zscores)
     ranked = _similarity(zscores, target)
     similar = ranked[ranked["regime"] == "similar"]
@@ -131,6 +165,9 @@ def view_now(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
         (_month(nearest), "closest match", True),
         (f"{reading['mean_ewma']:.2f} · {reading['pct_rank'] * 100:.0f}th pct", "regime-shift reading", False),
     ])
+    note = stale_note(last_obs, target, VAR_LABELS)
+    if note:
+        layout.note(note)
 
     similarity_blocks(zscores, target)
 
@@ -142,7 +179,7 @@ def view_now(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
                 "Peaks near the labelled dates are the ones the paper reports.")
 
 
-def view_explore(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
+def view_explore(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -> None:
     complete = zscores.dropna(how="any").index
     options = list(complete[::-1])
     param = st.query_params.get("month")
@@ -155,16 +192,19 @@ def view_explore(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
         "Every month in the record is scored against everything before it. Choose one to reproduce the paper's "
         "exhibits, or to test a memory.",
     )
-    layout.presets([(label, f"?view=explore&month={d}") for label, d in EXHIBITS])
+    layout.presets([(label, f"?view=explore&month={d}") for label, d, _ in EXHIBITS])
     target = st.selectbox("Month", options, index=index, format_func=_month)
     try:
         st.query_params["month"] = target.strftime("%Y-%m-%d")
     except Exception:
         pass
+    claim = exhibit_claim(target)
+    if claim:
+        layout.note(claim + " Compare with the matches below.")
     similarity_blocks(zscores, target)
 
 
-def view_method(raw: pd.DataFrame, zscores: pd.DataFrame) -> None:
+def view_method(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) -> None:
     layout.hero(
         "004 · Regimes",
         "How it <em>works</em>.",
@@ -246,12 +286,12 @@ def main(view: str | None = None, allow_refresh: bool = True) -> None:
     layout.top_bar(view)
 
     try:
-        raw, zscores = get_data(allow_refresh)
+        raw, zscores, last_obs = get_data(allow_refresh)
     except Exception as exc:  # a data problem must read as a card, not a traceback
         layout.hero("004 · Regimes", "Which past looks most like <em>now</em>?", "The data is not available right now.")
         layout.error_card(f"Data load failed: {exc}")
         layout.footer("—")
         return
 
-    VIEW_FUNCS[view](raw, zscores)
+    VIEW_FUNCS[view](raw, zscores, last_obs)
     layout.footer(_month(latest_complete_date(zscores)))

@@ -33,10 +33,14 @@ def cache_written_at(cache_dir: str = CACHE_DIR) -> datetime | None:
     return datetime.fromtimestamp(max(os.path.getmtime(f) for f in files))
 
 
-def load_frames(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Raw state variables and their Z-scores. Refetches when `refresh` is True."""
-    from data.fetcher import fetch_all
+def load_frames(refresh: bool) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+    """
+    Raw state variables (forward-filled), their Z-scores, and the last month each
+    variable was actually observed. Refetches when `refresh` is True.
+    """
+    from data.fetcher import fetch_all, last_observed
     from data.transformer import compute_zscore
 
-    raw = fetch_all(refresh_cache=refresh)
-    return raw, compute_zscore(raw)
+    unfilled = fetch_all(refresh_cache=refresh, fill=False)
+    raw = unfilled.ffill()
+    return raw, compute_zscore(raw), last_observed(unfilled)
