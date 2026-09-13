@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from engine.similarity import compute_global_scores, latest_complete_date
+from engine.similarity import compute_global_scores, excluded_window_scores, latest_complete_date
 
 COLS = ["a", "b"]
 
@@ -48,3 +48,22 @@ def test_months_after_target_are_not_candidates():
     scores = compute_global_scores(zs, target_date=zs.index[2], exclude_recent_months=0)
     assert np.isnan(scores.loc[zs.index[3]])
     assert scores.loc[zs.index[1]] == pytest.approx(np.sqrt(2))
+
+
+def test_excluded_window_scores_covers_the_masked_months_and_ends_at_zero():
+    # 10 months; excluding the last 3 leaves 7 rankable, and the excluded slice
+    # must be those 3 (target included), with the target's own distance at zero.
+    rows = [[float(i), float(i)] for i in range(10)]
+    zs = _zs(rows)
+    target = zs.index[-1]
+    excluded = excluded_window_scores(zs, target_date=target, exclude_recent_months=3)
+
+    assert list(excluded.index) == list(zs.index[-3:])
+    assert excluded.loc[target] == pytest.approx(0.0)
+    # Distance grows the further back we go: sqrt(2) per step of 1 in both columns.
+    assert excluded.iloc[0] == pytest.approx(2 * np.sqrt(2))
+
+    # It is exactly the complement of what the ranking sees.
+    ranked = compute_global_scores(zs, target_date=target, exclude_recent_months=3).dropna()
+    assert set(ranked.index).isdisjoint(excluded.index)
+    assert set(ranked.index) | set(excluded.index) == set(zs.index)

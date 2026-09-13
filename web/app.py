@@ -15,7 +15,8 @@ import streamlit as st
 from config import EXCLUDE_RECENT_MONTHS, QUANTILE_SIMILAR
 from engine.regime_shift import compute_regime_shift, current_regime_shift_score, get_half_lives
 from engine.factor_timing import BACKTEST_START, performance, run_backtest
-from engine.similarity import compute_global_scores, latest_complete_date, rank_regimes
+from engine.similarity import (compute_global_scores, excluded_window_scores,
+                               latest_complete_date, rank_regimes)
 from web import charts, layout, style
 from web.data import cache_written_at, load_factors, load_frames, needs_refresh
 
@@ -149,6 +150,7 @@ def _plot(fig) -> None:
 
 def similarity_blocks(zscores: pd.DataFrame, target: pd.Timestamp) -> pd.DataFrame:
     ranked = _similarity(zscores, target)
+    excluded = excluded_window_scores(zscores, target, EXCLUDE_RECENT_MONTHS)
     similar = ranked[ranked["regime"] == "similar"]
     dissimilar = ranked[ranked["regime"] == "dissimilar"].sort_values("global_score", ascending=False)
 
@@ -158,13 +160,14 @@ def similarity_blocks(zscores: pd.DataFrame, target: pd.Timestamp) -> pd.DataFra
 
     layout.section("Most <em>similar</em> months",
                    f"Distance from {_month(target)} to every earlier month. Rust marks the closest 20 %. "
-                   f"The shaded {EXCLUDE_RECENT_MONTHS} months before the target are excluded, per the paper, to avoid momentum.")
-    _plot(charts.similarity_timeline(ranked, target, EXCLUDE_RECENT_MONTHS, mode="similar"))
+                   f"The shaded {EXCLUDE_RECENT_MONTHS} months before the target are excluded, per the paper, to avoid momentum; "
+                   "they are drawn dotted, falling to zero on the target itself, and take no part in the ranking.")
+    _plot(charts.similarity_timeline(ranked, target, EXCLUDE_RECENT_MONTHS, mode="similar", excluded=excluded))
     layout.month_table(similar.head(N_TABLE))
 
     layout.section("Anti-regimes",
                    "The 20 % of months least like the target. The paper finds these carry information of their own.")
-    _plot(charts.similarity_timeline(ranked, target, EXCLUDE_RECENT_MONTHS, mode="dissimilar"))
+    _plot(charts.similarity_timeline(ranked, target, EXCLUDE_RECENT_MONTHS, mode="dissimilar", excluded=excluded))
     layout.month_table(dissimilar.head(N_TABLE), rust=False)
     return ranked
 

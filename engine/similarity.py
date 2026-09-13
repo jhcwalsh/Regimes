@@ -104,6 +104,27 @@ def compute_global_scores(
     return scores
 
 
+def excluded_window_scores(
+    zscores: pd.DataFrame,
+    target_date: Optional[pd.Timestamp] = None,
+    exclude_recent_months: int = EXCLUDE_RECENT_MONTHS,
+) -> pd.Series:
+    """
+    Distances for the months compute_global_scores masks out of the ranking.
+
+    These months are excluded from the ranking (momentum), but they are not
+    unknown: showing them keeps the timeline from appearing to end high at the
+    edge of the exclusion window. The series ends on target_date at zero.
+    """
+    zs = zscores.dropna(how="all")
+    if target_date is None:
+        target_date = latest_complete_date(zs)
+
+    scores = compute_global_scores(zs, target_date, exclude_recent_months=0)
+    cutoff = target_date - pd.DateOffset(months=exclude_recent_months)
+    return scores.loc[(scores.index > cutoff) & (scores.index <= target_date)].dropna()
+
+
 def rank_regimes(
     global_scores: pd.Series,
     quantile_similar: float = QUANTILE_SIMILAR,

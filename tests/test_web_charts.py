@@ -70,3 +70,28 @@ def test_cumulative_lines_emphasises_named_series_and_cumsums_percent():
     assert list(q1.y) == [1.0, 2.0, 1.0, 3.0, 3.0]
     assert q1.line.color == RUST
     assert fig.data[2].line.dash == "dot"
+
+
+def test_similarity_timeline_draws_the_excluded_window_as_a_dotted_continuation():
+    ranked = _ranked()
+    target = pd.Timestamp("2012-12-31")
+    # The 36 masked months, falling to zero on the target itself.
+    idx = pd.date_range("2010-01-31", periods=36, freq="ME")
+    excluded = pd.Series(np.linspace(8.0, 0.0, 36), index=idx)
+
+    fig = charts.similarity_timeline(ranked, target=target, exclude_months=36,
+                                     mode="similar", excluded=excluded)
+    names = [t.name for t in fig.data]
+    assert "Excluded from ranking" in names
+    trace = fig.data[names.index("Excluded from ranking")]
+    assert trace.line.dash == "dot" and trace.line.color == MUTED
+    # Joined to the last ranked point so the curve reads as continuous...
+    assert pd.Timestamp(trace.x[0]) == ranked.index[-1]
+    assert trace.y[0] == ranked["global_score"].sort_index().iloc[-1]
+    # ...and it reaches the target at zero rather than stopping short.
+    assert pd.Timestamp(trace.x[-1]) == target and trace.y[-1] == 0.0
+
+
+def test_similarity_timeline_without_excluded_scores_draws_no_extra_trace():
+    fig = charts.similarity_timeline(_ranked(), target=pd.Timestamp("2012-12-31"), exclude_months=36)
+    assert "Excluded from ranking" not in [t.name for t in fig.data]

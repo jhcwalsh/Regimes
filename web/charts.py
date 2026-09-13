@@ -68,12 +68,13 @@ def zscore_bars(z: pd.Series, labels: dict[str, str] | None = None, extreme: flo
 
 
 def similarity_timeline(ranked: pd.DataFrame, target: pd.Timestamp, exclude_months: int,
-                        mode: str = "similar") -> go.Figure:
+                        mode: str = "similar", excluded: pd.Series | None = None) -> go.Figure:
     """
     Global score for every historical month against `target`.
     mode='similar' emphasises the similar quintile in rust; mode='dissimilar'
     emphasises the anti-regime quintile. The masked window before the target
-    is shaded.
+    is shaded, and if `excluded` carries its distances they are drawn dotted —
+    otherwise the line stops at the edge of the window and reads as ending high.
     """
     series = ranked["global_score"].sort_index()
     fig = _fig()
@@ -89,6 +90,16 @@ def similarity_timeline(ranked: pd.DataFrame, target: pd.Timestamp, exclude_mont
         x=pts.index, y=pts["global_score"], mode="markers", name=name,
         marker=dict(color=colour, size=6), hovertemplate="%{x|%b %Y}: %{y:.2f}<extra></extra>",
     ))
+    if excluded is not None and not excluded.empty:
+        seg = excluded.sort_index()
+        if len(series) and series.index[-1] < seg.index[0]:
+            seg = pd.concat([series.iloc[[-1]], seg])   # join it to the ranked line
+        fig.add_trace(go.Scatter(
+            x=seg.index, y=seg.values, mode="lines", name="Excluded from ranking",
+            line=dict(color=MUTED, width=1, dash="dot"),
+            hovertemplate="%{x|%b %Y}: %{y:.2f} (excluded)<extra></extra>",
+        ))
+
     start = target - pd.DateOffset(months=exclude_months)
     fig.add_shape(type="rect", x0=start, x1=target, y0=0, y1=1, xref="x", yref="paper",
                   fillcolor=RULE, opacity=0.5, line_width=0, layer="below")
