@@ -96,13 +96,20 @@ def similarity_timeline(ranked: pd.DataFrame, target: pd.Timestamp, exclude_mont
             seg = pd.concat([series.iloc[[-1]], seg])   # join it to the ranked line
         fig.add_trace(go.Scatter(
             x=seg.index, y=seg.values, mode="lines", name="Excluded from ranking",
-            line=dict(color=MUTED, width=1, dash="dot"),
+            line=dict(color=MUTED, width=1.5, dash="dot"),
             hovertemplate="%{x|%b %Y}: %{y:.2f} (excluded)<extra></extra>",
         ))
 
+    # A faint tint plus a boundary rule: enough to bound the window, not enough
+    # to bury the months inside it.
     start = target - pd.DateOffset(months=exclude_months)
     fig.add_shape(type="rect", x0=start, x1=target, y0=0, y1=1, xref="x", yref="paper",
-                  fillcolor=RULE, opacity=0.5, line_width=0, layer="below")
+                  fillcolor=RULE, opacity=0.22, line_width=0, layer="below")
+    fig.add_shape(type="line", x0=start, x1=start, y0=0, y1=1, xref="x", yref="paper",
+                  line=dict(color=RULE, width=1, dash="dot"), layer="below")
+    fig.add_annotation(x=start, y=1, xref="x", yref="paper", text=f"{exclude_months}m excluded",
+                       showarrow=False, xanchor="left", yanchor="top", xshift=5, yshift=-4,
+                       font=dict(family=MONO, size=10, color=MUTED))
     fig.update_layout(yaxis=dict(title="Distance (lower = more similar)", rangemode="tozero"))
     return fig
 

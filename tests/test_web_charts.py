@@ -43,9 +43,12 @@ def test_similarity_timeline_marks_similar_months_and_masked_window():
     assert "Global score" in names and "Similar months" in names
     marks = fig.data[names.index("Similar months")]
     assert len(marks.x) == 24 and marks.marker.color == RUST
-    # masked window drawn as a shaded region ending at the target month
-    shapes = fig.layout.shapes
-    assert len(shapes) == 1 and pd.Timestamp(shapes[0].x1) == target
+    # masked window bounded by a faint tint ending at the target month, plus a
+    # rule at its left edge; the tint must stay light enough to read through
+    rect, rule = fig.layout.shapes
+    assert pd.Timestamp(rect.x1) == target and rect.opacity <= 0.25
+    assert pd.Timestamp(rule.x0) == pd.Timestamp(rule.x1) == target - pd.DateOffset(months=36)
+    assert "excluded" in fig.layout.annotations[0].text
 
 
 def test_regime_shift_chart_has_mean_and_four_lookbacks():
