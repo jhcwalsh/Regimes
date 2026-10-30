@@ -214,7 +214,10 @@ def view_explore(raw: pd.DataFrame, zscores: pd.DataFrame, last_obs: pd.Series) 
     complete = zscores.dropna(how="any").index
     options = list(complete[::-1])
     param = st.query_params.get("month")
-    default = pd.Timestamp(param) if param else options[0]
+    try:
+        default = pd.Timestamp(param) if param else options[0]
+    except (ValueError, TypeError):  # a hand-edited link must not crash the page
+        default = options[0]
     index = options.index(default) if default in options else 0
 
     layout.hero(

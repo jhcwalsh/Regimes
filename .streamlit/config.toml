@@ -15,3 +15,5 @@ gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"
+# Public site: show only the exception type, never a stack trace (full detail stays in the logs)
+showErrorDetails = "type"

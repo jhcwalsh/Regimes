@@ -30,3 +30,12 @@ def test_unknown_view_falls_back_to_now():
     at = _run("nonsense")
     assert not at.exception
     assert any("Which past" in m.value for m in at.markdown)
+
+
+@pytest.mark.parametrize("month", ["notadate", "1800-01-31", "<script>alert(1)</script>"])
+def test_bad_month_param_falls_back_to_latest(month):
+    at = AppTest.from_string("from web.app import main\nmain(view='explore', allow_refresh=False)\n",
+                             default_timeout=120)
+    at.query_params["month"] = month
+    at.run()
+    assert not at.exception, at.exception

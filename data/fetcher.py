@@ -22,8 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import (
     FRED_API_KEY, FRED_SERIES, SP500_TICKER, BOND_TICKER,
     CORR_LOOKBACK_YRS, CACHE_DIR,
-    COPPER_FRED_ID, COPPER_WB_URL, COPPER_WB_COLUMN,
+    COPPER_FRED_ID,
 )
+
+COPPER_HISTORY_CSV = os.path.join(os.path.dirname(__file__), "copper_history.csv")
 
 # Bump when a series' source changes so stale cache files are ignored, not reused.
 CACHE_VERSION = "v2"
@@ -146,19 +148,24 @@ def fetch_sp500_monthly(start: str = "1920-01-01") -> pd.Series:
     return s
 
 
+def load_copper_history() -> pd.Series:
+    """
+    Copper, $/mt, 1960-2024, shipped with the app. It is the World Bank Pink Sheet
+    (COPPER_WB_URL, parsed with parse_pink_sheet) already spliced to FRED. The Pink
+    Sheet snapshot is frozen and its server refuses Python clients (403 since
+    Oct 2026), so it is not downloaded at runtime; FRED supplies everything live.
+    """
+    s = pd.read_csv(COPPER_HISTORY_CSV, index_col="date", parse_dates=True)["copper"]
+    return _to_month_period(s)
+
+
 def fetch_copper_monthly() -> pd.Series:
-    """Copper, $/mt, 1960-: World Bank Pink Sheet history spliced with FRED's live series."""
+    """Copper, $/mt, 1960-: bundled Pink Sheet history spliced with FRED's live series."""
     cached = _load_cache("copper")
     if cached is not None:
         return _to_month_period(cached)
 
-    import io
-    import urllib.request
-    with urllib.request.urlopen(COPPER_WB_URL, timeout=60) as resp:
-        raw = resp.read()
-    sheet = pd.read_excel(io.BytesIO(raw), sheet_name="Monthly Prices", header=None)
-    wb = parse_pink_sheet(sheet, COPPER_WB_COLUMN)
-
+    wb = load_copper_history()
     live = _to_month_period(_fred().get_series(COPPER_FRED_ID, observation_start="1960-01-01"))
 
     copper = _to_month_period(splice_levels(wb, live))
@@ -306,12 +313,35 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False, fill: bool
         stock_bond_corr  – Rolling 3-yr stock-bond correlation
 
     fill=True forward-fills lagging series to the latest month.
+
+    refresh_cache=True refetches everything, but the old cache is only set aside: if
+    any source fails it is put back and the error raised, so stale data survives.
     """
-    if refresh_cache:
+    if not refresh_cache:
+        return _fetch_all(start, fill)
+
+    import shutil
+    stale = os.path.join(CACHE_DIR, ".stale")
+    shutil.rmtree(stale, ignore_errors=True)
+    os.makedirs(stale)
+    parquets = [f for f in os.listdir(CACHE_DIR) if f.endswith(".parquet")]
+    for f in parquets:
+        os.replace(os.path.join(CACHE_DIR, f), os.path.join(stale, f))
+    try:
+        df = _fetch_all(start, fill)
+    except Exception:
         for f in os.listdir(CACHE_DIR):
             if f.endswith(".parquet"):
                 os.remove(os.path.join(CACHE_DIR, f))
+        for f in parquets:
+            os.replace(os.path.join(stale, f), os.path.join(CACHE_DIR, f))
+        raise
+    finally:
+        shutil.rmtree(stale, ignore_errors=True)
+    return df
 
+
+def _fetch_all(start: str, fill: bool) -> pd.DataFrame:
     fred_data    = fetch_fred_series(start)
     sp500        = fetch_sp500_monthly(start)
     copper       = fetch_copper_monthly()
