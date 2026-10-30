@@ -20,10 +20,9 @@
   rejected: it dodges the publisher's bot check.
 
 **Broken / unsure**
-- Not deployed yet. Verified on the Mini in a throwaway container only.
+- Deployed 30 Oct (git pull + compose rebuild over SSH). Now, Explore, Factors and a junk ?month= link checked live.
 - Container runs as root; port 8503 is bound on all interfaces, not just localhost.
 
 **Next**
-- Push and `deploy regimes`, then check the live site in a browser.
 - Run the container as a non-root user; bind 127.0.0.1:8503 if cloudflared runs on the host.
 - Add a health check that alerts when the error card is showing.
