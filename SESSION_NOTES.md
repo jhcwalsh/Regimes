@@ -1,5 +1,25 @@
 # Session notes
 
+## 2026-10-31 — Hourly health check with ntfy alerts
+
+**Done**
+- `scripts/check_regimes.sh` (host) + `deploy/com.lazyeconomist.regimes.health.plist`: hourly,
+  checks the public URL, then runs `scripts/healthcheck.py` in the container. That loads the data
+  as the app does (refreshing a week-old cache) and flags any series older than 75 days, factors
+  older than 120, or a cache that survived a failed refresh.
+- ntfy push on first failure, a reminder every 24h while broken, one on recovery. Topic in
+  `~/apps/regimes/.health.env` (same topic as States/Engrave). Log `~/apps/regimes/logs/health.log`.
+- Refresh now sets the old cache aside in its own temp folder, so the app and the check can
+  refresh at once without deleting each other's backup.
+- Tests: `tests/test_healthcheck.py`. Alert routing checked against stub docker/curl (not committed).
+
+**Why**
+- Since the site now serves stale data when a refresh fails, the page no longer shows breakage;
+  without this check a dead source would go unnoticed.
+
+**Next**
+- Non-root container and 127.0.0.1 port binding (still open from 30 Oct).
+
 ## 2026-10-30 — Site down: copper source 403, refresh wiped the cache
 
 **Done**
@@ -25,4 +45,4 @@
 
 **Next**
 - Run the container as a non-root user; bind 127.0.0.1:8503 if cloudflared runs on the host.
-- Add a health check that alerts when the error card is showing.
+- Add a health check that alerts when the error card is showing. (Done 31 Oct.)

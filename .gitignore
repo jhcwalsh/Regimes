@@ -5,3 +5,5 @@ __pycache__/
 *.parquet
 .streamlit/secrets.toml
 .idea/
+logs/
+.health.env

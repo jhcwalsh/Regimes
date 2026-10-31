@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hourly health check of regimes.lazyeconomist.com. Copy to ~/Library/LaunchAgents and
+     `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lazyeconomist.regimes.health.plist`. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lazyeconomist.regimes.health</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/jameswalsh/apps/regimes/scripts/check_regimes.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/jameswalsh/apps/regimes/logs/launchd.health.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jameswalsh/apps/regimes/logs/launchd.health.err</string>
+</dict>
+</plist>

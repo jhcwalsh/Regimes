@@ -7,3 +7,5 @@ __pycache__
 tests
 docs
 cache
+logs
+deploy

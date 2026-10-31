@@ -321,9 +321,10 @@ def fetch_all(start: str = "1920-01-01", refresh_cache: bool = False, fill: bool
         return _fetch_all(start, fill)
 
     import shutil
-    stale = os.path.join(CACHE_DIR, ".stale")
-    shutil.rmtree(stale, ignore_errors=True)
-    os.makedirs(stale)
+    import tempfile
+    # Own folder per call: the app and the health check can refresh at the same time.
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    stale = tempfile.mkdtemp(prefix=".stale-", dir=CACHE_DIR)
     parquets = [f for f in os.listdir(CACHE_DIR) if f.endswith(".parquet")]
     for f in parquets:
         os.replace(os.path.join(CACHE_DIR, f), os.path.join(stale, f))
